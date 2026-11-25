@@ -1,0 +1,7 @@
+# Quién publica One-Side (LSSI, art. 10). Copia este archivo como legal/PUBLISHER.txt
+# y rellénalo antes de publicar la app para otras personas. Ese archivo va dentro de
+# la app (One-Side › Acerca de) y debe ponerse también en la web de descarga.
+Nombre o razón social: COMPLETAR
+NIF (si se ofrece a cambio de dinero o con publicidad): COMPLETAR
+Dirección: COMPLETAR
+Correo de contacto: COMPLETAR

@@ -1,0 +1,12 @@
+# Build output
+/target
+/dist
+
+# Internal design drafts (not part of the project)
+/brand/*.html
+
+# Who publishes a release: filled in locally, never committed
+/legal/PUBLISHER.txt
+
+# macOS
+.DS_Store

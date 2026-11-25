@@ -1,0 +1,30 @@
+[package]
+name = "one-side"
+license = "MIT"
+version = "1.0.0"
+edition = "2024"
+
+[lib]
+name = "one_side"
+crate-type = ["staticlib", "rlib"]
+
+[[bin]]
+name = "one-side"
+path = "src/main.rs"
+
+[dependencies]
+anyhow = "1.0.105"
+cab = "0.6.0"
+compatdb-core = { git = "https://github.com/athei/mach9", tag = "v0.4.0", version = "0.4.0" }
+image = { version = "0.25.10", default-features = false, features = ["jpeg", "png", "ico", "bmp"] }
+irori-core = { git = "https://github.com/irori-app/irori", rev = "1d730c487a71", version = "1.1.0" }
+irori-epic = { git = "https://github.com/irori-app/irori", rev = "1d730c487a71", version = "1.1.0" }
+irori-gog = { git = "https://github.com/irori-app/irori", rev = "1d730c487a71", version = "1.1.0" }
+object = { version = "0.41.0", default-features = false, features = ["read_core", "pe", "std"] }
+regex = "1.13.2"
+resvg = { version = "0.45", default-features = false }
+serde = { version = "1.0.229", features = ["derive"] }
+serde_json = "1.0.154"
+tokio = { version = "1.54.1", features = ["rt-multi-thread", "macros"] }
+ureq = "3.5.2"
+
