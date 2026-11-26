@@ -7,12 +7,12 @@
 # Personal builds keep using ./bundle.sh.
 set -e
 cd "$(dirname "$0")"
-fail() { echo "No se puede publicar: $1" >&2; exit 1; }
-[ -f legal/PUBLISHER.txt ] || fail "falta legal/PUBLISHER.txt (copia legal/PUBLISHER.example.txt y rellénalo)."
-grep -q COMPLETAR legal/PUBLISHER.txt && fail "legal/PUBLISHER.txt tiene campos sin rellenar."
-[ -n "$DEVELOPER_ID" ] || fail "falta DEVELOPER_ID (certificado Developer ID de Apple)."
-[ -n "$NOTARY_PROFILE" ] || fail "falta NOTARY_PROFILE (xcrun notarytool store-credentials)."
-security find-identity -v -p codesigning | grep -q "$DEVELOPER_ID" || fail "el certificado \"${DEVELOPER_ID}\" no está en el llavero."
+fail() { echo "Can't publish: $1" >&2; exit 1; }
+[ -f legal/PUBLISHER.txt ] || fail "legal/PUBLISHER.txt is missing (copy legal/PUBLISHER.example.txt and fill it in)."
+grep -q "FILL IN\|COMPLETAR" legal/PUBLISHER.txt && fail "legal/PUBLISHER.txt still has fields to fill in."
+[ -n "$DEVELOPER_ID" ] || fail "DEVELOPER_ID is missing (an Apple Developer ID certificate)."
+[ -n "$NOTARY_PROFILE" ] || fail "NOTARY_PROFILE is missing (xcrun notarytool store-credentials)."
+security find-identity -v -p codesigning | grep -q "$DEVELOPER_ID" || fail "the certificate \"${DEVELOPER_ID}\" isn't in the keychain."
 
 ./bundle.sh
 APP=dist/One-Side.app
@@ -28,4 +28,4 @@ xcrun stapler staple "$APP"
 spctl --assess --type execute --verbose "$APP"
 rm -f dist/One-Side.zip
 ditto -c -k --keepParent "$APP" dist/One-Side.zip
-echo "Lista para publicar: dist/One-Side.zip (firmada, notarizada y con el publicador)."
+echo "Ready to publish: dist/One-Side.zip (signed, notarized and with the publisher)."

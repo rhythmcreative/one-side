@@ -90,6 +90,7 @@ The app ships a small helper used by Dock shortcuts and for testing. To build th
   --install-app file:<path> <name>      Installs from your own .exe or .msi
   --winetricks <bottle> <verbs…>        Installs dependencies in a bottle
   --accept                              You accept the terms of what installs without its own installer
+  --check-updates                       Updates One-Side and what it downloads, now
   -h, --help                            This help
 ```
 

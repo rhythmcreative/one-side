@@ -52,6 +52,7 @@ fn cli() -> Option<i32> {
             println!("  --install-app file:<path> <name>      Installs from your own .exe or .msi");
             println!("  --winetricks <bottle> <verbs…>        Installs dependencies in a bottle");
             println!("  --accept                              You accept the terms of what installs without its own installer");
+            println!("  --check-updates                       Updates One-Side and what it downloads, now");
             println!("  -h, --help                            This help");
             Some(0)
         }
@@ -161,6 +162,15 @@ fn cli() -> Option<i32> {
                     Some(1)
                 }
             }
+        }
+        // What the automatic updates do, now, in the terminal.
+        Some("--check-updates") => {
+            let (done, later) = one_side::update::check(&|s| eprintln!("{s}"));
+            println!("updated: {}", if done.is_empty() { "nothing".into() } else { done.join(", ") });
+            if !later.is_empty() {
+                println!("waiting for closed bottles: {}", later.join(", "));
+            }
+            Some(0)
         }
         Some("--update-fixes") => match fixes::update() {
             Ok(db) => {

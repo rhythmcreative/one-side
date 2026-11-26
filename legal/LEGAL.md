@@ -148,7 +148,7 @@ One-Side is published as an **open source project on GitHub**:
 - **Builds in "Releases":**
   - They can go up without notarization; the README explains the macOS warning.
     Notarizing isn't a legal requirement.
-  - To notarize them, run `./publicar.sh`. It needs `legal/PUBLISHER.txt`, a Developer
+  - To notarize them, run `./publish.sh`. It needs `legal/PUBLISHER.txt`, a Developer
     ID and a `notarytool` profile, and stops if anything is missing. It signs with the
     hardened runtime and a timestamp, notarizes, staples the ticket and checks it with
     `spctl`.
