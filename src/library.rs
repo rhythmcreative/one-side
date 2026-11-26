@@ -106,7 +106,7 @@ fn steam(b: &Bottle) -> Vec<Game> {
             if id == "228980" || !seen.insert(id.clone()) {
                 continue;
             }
-            let game_exe = vdf("installdir", &t).into_iter().next().and_then(|d| crate::auto::main_exe(&lib.join("common").join(d)));
+            let game_exe = vdf("installdir", &t).into_iter().next().and_then(|d| crate::auto::main_exe_cached(&lib.join("common").join(d)));
             out.push(Game {
                 key: format!("steam-{}-{id}", b.id),
                 name,

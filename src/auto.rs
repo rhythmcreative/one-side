@@ -198,6 +198,22 @@ pub fn analyze_cached(exe: &Path) -> Option<Analysis> {
     a
 }
 
+static MAIN_EXE: LazyLock<Mutex<HashMap<PathBuf, (SystemTime, Option<PathBuf>)>>> = LazyLock::new(Default::default);
+
+/// [`main_exe`], remembered while the folder's own entries don't change: the library
+/// is scanned again after every job, and walking big game folders each time adds up.
+pub fn main_exe_cached(dir: &Path) -> Option<PathBuf> {
+    let mtime = fs::metadata(dir).and_then(|m| m.modified()).ok()?;
+    if let Some((t, exe)) = MAIN_EXE.lock().unwrap().get(dir) {
+        if *t == mtime && exe.as_deref().is_none_or(Path::exists) {
+            return exe.clone();
+        }
+    }
+    let exe = main_exe(dir);
+    MAIN_EXE.lock().unwrap().insert(dir.to_path_buf(), (mtime, exe.clone()));
+    exe
+}
+
 /// The main .exe of an installed game folder: the biggest one that is not an
 /// installer, redistributable or crash reporter.
 pub fn main_exe(dir: &Path) -> Option<PathBuf> {

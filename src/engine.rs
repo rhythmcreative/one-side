@@ -444,10 +444,33 @@ impl Bottle {
             .into_iter()
             .flatten()
             .flatten()
-            .filter_map(|e| Self::load(&e.file_name().to_string_lossy()))
+            .filter_map(|e| {
+                let id = e.file_name().to_string_lossy().into_owned();
+                Self::load(&id).or_else(|| Self::recover(&id))
+            })
             .collect();
         all.sort_by_key(|b| b.config.name.to_lowercase());
         all
+    }
+
+    /// A bottle folder with a Windows inside but no settings file at all (lost, or left
+    /// by an old version) would be invisible and impossible to delete from the app, so
+    /// it comes back with new settings. Its engine is told by its files: MetalSharp
+    /// Wine puts nvngx.dll in system32, Mach9 doesn't. No store is set, so it never
+    /// stands in for the real store bottle.
+    fn recover(id: &str) -> Option<Self> {
+        let dir = bottles_dir().join(id);
+        let cfg = dir.join(CONFIG_FILE);
+        if id.starts_with('.') || cfg.exists() || cfg.with_extension("json.bak").exists() || !dir.join("pfx/system.reg").exists() {
+            return None;
+        }
+        let mut config = BottleConfig::new(&format!("{id} (recovered)"), None);
+        if dir.join("pfx/drive_c/windows/system32/nvngx.dll").exists() {
+            config.engine = Engine::D3dmetal;
+        }
+        let b = Self { id: id.to_owned(), config };
+        b.save().ok()?;
+        Some(b)
     }
 
     /// A free folder name for a new bottle called `name`.

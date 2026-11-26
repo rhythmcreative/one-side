@@ -871,6 +871,26 @@ mod tests {
     use super::*;
 
     /// Every setting the window can change is on disk afterwards, and a store's app
+    /// How long the window's refresh takes on this Mac's real bottles (read only).
+    #[test]
+    #[ignore]
+    fn bench_state() {
+        let t = std::time::Instant::now();
+        let mut c = Core {
+            bottles: vec![], games: vec![], programs: HashMap::new(), fixes: FixDb::load(),
+            shared: Handle::default(), wt: catalog::winetricks_apps(), lutris: Arc::default(), sent: None,
+        };
+        eprintln!("load fixes + catalogue: {:?}", t.elapsed());
+        for i in 0..3 {
+            let t = std::time::Instant::now();
+            c.reload();
+            let r = t.elapsed();
+            let t = std::time::Instant::now();
+            let n = state_json(&c).to_string().len();
+            eprintln!("run {i}: reload {r:?}, state {:?} ({} games, {} bottles, {} KB)", t.elapsed(), c.games.len(), c.bottles.len(), n / 1024);
+        }
+    }
+
     /// shows in the library.
     #[test]
     fn settings_are_saved() {
