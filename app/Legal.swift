@@ -60,7 +60,7 @@ struct AboutView: View {
                 }
                 VStack(alignment: .leading, spacing: 12) {
                     fact("cpu", "Motor de juegos", "Los juegos funcionan con Mach9, que reúne Wine, DXMT, vkd3d-proton, FEX y Mesa. One-Side lo descarga de sus autores y no lo modifica. Su código fuente es libre: github.com/athei/mach9.")
-                    fact("tag", "Marcas", "One-Side no está afiliado a Valve, Epic Games, GOG, Electronic Arts, Ubisoft, Blizzard, Rockstar Games, Amazon, itch.io, Lutris, Microsoft, Apple ni CodeWeavers, ni cuenta con su aprobación. Sus nombres y logotipos son marcas de sus dueños y aquí solo indican con qué es compatible One-Side.")
+                    fact("tag", "Marcas", "One-Side no está afiliado a Valve, Epic Games, GOG, Electronic Arts, Ubisoft, Blizzard, Rockstar Games, Amazon, itch.io, Lutris, Highball, Microsoft, Apple ni CodeWeavers, ni cuenta con su aprobación. Sus nombres y logotipos son marcas de sus dueños y aquí solo indican con qué es compatible One-Side.")
                     fact("photo", "Imágenes de los juegos", "Las portadas e iconos son de sus editoras. Se descargan de Steam solo para mostrarlos en tu biblioteca y se guardan en tu Mac.")
                     fact("hand.raised", "Privacidad", "One-Side no tiene cuentas, servidores ni analítica, y no envía datos tuyos a nadie. Todo se guarda en tu Mac.")
                     fact("doc.text", "Licencias de lo que instalas", "Cada tienda, juego o programa tiene su propia licencia. Si One-Side lo instala sin mostrar su asistente, antes te enseña sus condiciones para que las aceptes tú.")
@@ -123,7 +123,21 @@ struct TermsPrompt: ViewModifier {
                        without: t.without.map { w in { core.pendingTerms = nil; core.send(w.command) } },
                        cancel: { core.pendingTerms = nil })
         }
+        .alert(core.compatWarning.map { "\($0.game.name) no funciona en Mac" } ?? "",
+               isPresented: Binding(get: { core.compatWarning != nil }, set: { if !$0 { core.compatWarning = nil } }),
+               presenting: core.compatWarning) { w in
+            Button(w.download ? "Descargar igualmente" : "Intentarlo igualmente") { core.compatWarning = nil; core.tryAnyway(w) }
+            Button("Cancelar", role: .cancel) { core.compatWarning = nil }
+        } message: { w in
+            Text(compatMessage(w.game))
+        }
     }
+}
+
+func compatMessage(_ g: Game) -> String {
+    let ac = g.compat?.anticheat ?? []
+    let why = ac.isEmpty ? (g.compat?.label ?? "") : "Usa \(ac.joined(separator: ", ")), un antitrampas que funciona dentro del sistema de Windows y no existe en Wine."
+    return "\(why) Ni One-Side ni CrossOver pueden hacerlo funcionar. Dato de highball-db."
 }
 
 /// The licence to accept, with its official link; nothing is accepted by default.

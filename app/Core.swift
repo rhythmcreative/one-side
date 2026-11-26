@@ -9,6 +9,20 @@ struct Rating: Decodable, Hashable { let stars: Int; let text: String }
 struct GameSettings: Decodable, Hashable {
     let backend: String; let fallback: Bool; let metalfx: Bool; let factor: Double
     let fps: Int; let hud: Bool; let useFixes: Bool
+    /// 0 Auto, 11 or 12.
+    let directx: Int?
+    /// D3DMetal engine: the lane chosen for the game ("auto", "d3dmetal", "dxmt", "wine"),
+    /// where Auto moved it after a failed start, and the lane it runs on now (nil on Mach9).
+    let graphics: String?
+    let autoGraphics: String?
+    let lane: String?
+    /// D3DMetal engine: OptiScaler hands the game's FSR 2/3 or XeSS to DLSS.
+    let optiscaler: Bool?
+}
+
+/// How the game runs on Apple Silicon, from highball-db.
+struct CompatInfo: Decodable, Hashable {
+    let level: String, label: String, notes: String, anticheat: [String], renderer: String?, url: String?
 }
 
 struct Game: Decodable, Identifiable, Hashable {
@@ -20,6 +34,11 @@ struct Game: Decodable, Identifiable, Hashable {
     let fix: String?, analysis: String?, task: String?
     /// Licences to accept before this game's fixes can install their dependencies.
     let fixTerms: [String]?
+    let compat: CompatInfo?
+    /// The game has DirectX 11 and 12 and can run on either.
+    let dualDx: Bool?
+    /// Auto runs it on DirectX 11 (highball-db has it working on DXMT).
+    let autoDx11: Bool?
     var sourceLabel: String { source == "Propio" ? "Instalado por ti" : source }
 }
 
@@ -33,7 +52,13 @@ struct Bottle: Decodable, Identifiable, Hashable {
     /// The store's colour, or One-Side's indigo for bottles of their own.
     var brand: Color { color.map { Color(red: Double($0[0]) / 255, green: Double($0[1]) / 255, blue: Double($0[2]) / 255) } ?? Color(red: 0.33, green: 0.36, blue: 0.82) }
     let windows: String, windowsName: String, backend: String
+    /// "mach9" or "d3dmetal".
+    let engine: String?
     let msync: Bool, retina: Bool, hud: Bool, debug: Bool
+    /// D3DMetal engine: the bottle's lane, AVX under Rosetta, DLSS on MetalFX.
+    let graphics: String?, avx: Bool?, dlss: Bool?
+    /// D3DMetal engine: DLSS on AMD FSR 4 instead of MetalFX, its panel, and whether it is built.
+    let fsr4: Bool?, fsr4Panel: Bool?, fsr4Ready: Bool?
     let verbsDone: [String], programs: [Program], task: String?
     let driveC: String, log: String
 }
@@ -71,12 +96,14 @@ struct LutrisResult: Decodable, Hashable, Identifiable {
 struct Lutris: Decodable { let query: String; let busy: Bool; let error: String?; let offers: [String: Offer]; let results: [LutrisResult] }
 struct Message: Decodable { let text: String; let error: Bool }
 struct EngineInfo: Decodable { let version: String; let installed: Bool }
-struct FixesInfo: Decodable { let games: Int; let names: Int }
+struct FixesInfo: Decodable { let games: Int; let names: Int; let compat: Int? }
 
 struct CoreState: Decodable {
     let games: [Game], bottles: [Bottle], stores: [StoreItem], apps: [WinApp], lutris: Lutris
     let tasks: [String: String], message: Message?, engine: EngineInfo, fixes: FixesInfo, steamBottle: String?
     let consents: [String]?
+    /// Huge shaders a running game is compiling for the first time.
+    let shadersPending: Int?
 }
 
 /// A licence the user has to accept before One-Side installs something without its own installer.
@@ -105,11 +132,21 @@ enum Section: Hashable {
     case library, install, bottle(String)
 }
 
+/// A game that cannot run on a Mac, asked about before it is started or downloaded.
+struct CompatWarning: Identifiable {
+    let id = UUID()
+    let game: Game
+    let download: Bool
+}
+
 struct Toast: Identifiable, Equatable { let id = UUID(); let text: String; let error: Bool }
 
 @MainActor
 final class Core: ObservableObject {
     @Published var pendingTerms: PendingTerms?
+    @Published var compatWarning: CompatWarning?
+    /// Games the user chose to try anyway this session.
+    private var triedAnyway: Set<String> = []
     @Published var state: CoreState?
     @Published var toast: Toast?
     @Published var section: Section? = .library
@@ -170,6 +207,10 @@ final class Core: ObservableObject {
     func bottle(_ id: String) -> Bottle? { bottles.first { $0.id == id } }
 
     func play(_ g: Game) {
+        if g.compat?.level == "bad" && !triedAnyway.contains(g.key) {
+            compatWarning = CompatWarning(game: g, download: false)
+            return
+        }
         let cmd: [String: Any] = ["cmd": "play", "key": g.key]
         if let k = g.fixTerms?.first(where: { !(state?.consents ?? []).contains($0) }) {
             var t = terms(k, for: cmd)
@@ -178,6 +219,20 @@ final class Core: ObservableObject {
         } else {
             send(cmd)
         }
+    }
+
+    func download(_ g: Game) {
+        if g.compat?.level == "bad" && !triedAnyway.contains(g.key) {
+            compatWarning = CompatWarning(game: g, download: true)
+            return
+        }
+        send(["cmd": "download", "key": g.key])
+    }
+
+    /// "Intentarlo igualmente" on the warning.
+    func tryAnyway(_ w: CompatWarning) {
+        triedAnyway.insert(w.game.key)
+        if w.download { download(w.game) } else { play(w.game) }
     }
 
     func acceptTerms(_ t: PendingTerms) {

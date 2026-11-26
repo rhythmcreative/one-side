@@ -19,6 +19,52 @@ pub const APP: &str = "One-Side";
 pub fn home() -> PathBuf {
     std::env::var_os("HOME").map_or_else(|| PathBuf::from("/tmp"), PathBuf::from)
 }
+/// One-Side's Vulkan driver shim (vkshim/onesidekk.m, in the app's Resources) in front
+/// of the engine's KosmicKrisp: the same driver, with Metal's shader compiler allowed
+/// deeper nesting than 256 brackets, which large D3D12 shaders need. Writes the
+/// manifest the Vulkan loader reads and returns its folder and the real driver.
+/// None when either file is missing (a development build), so Wine keeps its own.
+pub fn vulkan_shim() -> Option<(PathBuf, PathBuf)> {
+    let exe = std::env::current_exe().ok()?;
+    let shim = exe.parent()?.parent()?.join("Resources/libonesidekk.dylib");
+    let real = engine().join("lib/external/libvulkan_kosmickrisp.dylib");
+    if !shim.exists() || !real.exists() {
+        return None;
+    }
+    let dir = support().join("vulkan");
+    let manifest = dir.join("onesidekk_icd.aarch64.json");
+    let api = fs::read(engine().join("share/vulkan/icd.d/kosmickrisp_mesa_icd.aarch64.json"))
+        .ok()
+        .and_then(|d| serde_json::from_slice::<serde_json::Value>(&d).ok())
+        .and_then(|v| v["ICD"]["api_version"].as_str().map(str::to_owned))
+        .unwrap_or_else(|| "1.4.0".into());
+    let body = serde_json::json!({ "file_format_version": "1.0.1", "ICD": { "library_path": shim, "api_version": api } }).to_string();
+    if fs::read_to_string(&manifest).ok().as_deref() != Some(body.as_str()) {
+        fs::create_dir_all(&dir).ok()?;
+        fs::write(&manifest, body).ok()?;
+    }
+    Some((dir, real))
+}
+
+/// Huge shaders the shim is compiling or has queued, over all running games; removes
+/// the files of processes that ended without cleaning up.
+pub fn shaders_pending() -> u32 {
+    let mut n = 0;
+    for e in fs::read_dir(support().join("vulkan")).into_iter().flatten().flatten() {
+        let name = e.file_name().to_string_lossy().into_owned();
+        let Some(pid) = name.strip_prefix("compiling-").and_then(|p| p.parse::<i32>().ok()) else { continue };
+        unsafe extern "C" {
+            fn kill(pid: i32, sig: i32) -> i32;
+        }
+        if unsafe { kill(pid, 0) } != 0 {
+            let _ = fs::remove_file(e.path());
+            continue;
+        }
+        n += fs::read_to_string(e.path()).ok().and_then(|s| s.trim().parse::<u32>().ok()).unwrap_or(0);
+    }
+    n
+}
+
 pub fn support() -> PathBuf {
     home().join("Library/Application Support").join(APP)
 }
@@ -48,6 +94,14 @@ pub fn wine_bin() -> PathBuf {
 }
 pub fn wineserver_bin() -> PathBuf {
     engine().join("bin/wineserver")
+}
+/// Apple's D3DMetal engine: MetalSharp Wine x86_64 (Wine 11.22 under Rosetta with the
+/// Game Porting Toolkit's D3DMetal), unpacked into `engine-metalsharp`.
+pub fn d3dmetal_app() -> PathBuf {
+    support().join("engine-metalsharp/MetalSharp-Wine-x86_64.app")
+}
+pub fn d3dmetal_installed() -> bool {
+    d3dmetal_app().join("Contents/MacOS/wine").exists()
 }
 pub fn bottles_dir() -> PathBuf {
     support().join("Bottles")
@@ -111,17 +165,110 @@ pub struct GameSettings {
     pub use_fixes: bool,
     #[serde(default)]
     pub metal_hud: bool,
+    /// For games that have both: 0 = Auto decides, 11 = hide D3D12 so the game uses
+    /// D3D11 on DXMT, 12 = leave D3D12 (Auto also sets it when D3D11 died at start).
+    #[serde(default)]
+    pub directx: u8,
+    /// The D3DMetal engine's lane for this game; Auto follows the bottle.
+    #[serde(default)]
+    pub graphics: Graphics,
+    /// Where Auto moved the game after it died at start on its first lane.
+    #[serde(default)]
+    pub auto_graphics: Option<Graphics>,
+    /// D3DMetal engine: OptiScaler next to the game hands its FSR 2/3 or XeSS to DLSS.
+    #[serde(default)]
+    pub optiscaler: bool,
 }
 
 impl Default for GameSettings {
     fn default() -> Self {
-        Self { backend: Backend::Auto, fallback: false, metalfx: false, metalfx_factor: 2.0, fps_limit: 0, use_fixes: true, metal_hud: false }
+        Self {
+            backend: Backend::Auto,
+            fallback: false,
+            metalfx: false,
+            metalfx_factor: 2.0,
+            fps_limit: 0,
+            use_fixes: true,
+            metal_hud: false,
+            directx: 0,
+            graphics: Graphics::Auto,
+            auto_graphics: None,
+            optiscaler: false,
+        }
+    }
+}
+
+/// Which Wine runs a bottle.
+#[derive(Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Default, Debug)]
+#[serde(rename_all = "lowercase")]
+pub enum Engine {
+    /// Mach9: native ARM64 Wine with FEX; DXMT, mtld3d and vkd3d-proton on Metal.
+    #[default]
+    Mach9,
+    /// Apple's D3DMetal on an x86_64 Wine under Rosetta, as CrossOver does: DirectX 11
+    /// and 12 straight to Metal, no long shader compiles.
+    D3dmetal,
+}
+
+/// The Direct3D translation the D3DMetal engine loads in a process: MetalSharp Wine's
+/// `GRAPHICS_BACKEND`, the same choice as CrossOver's `CX_GRAPHICS_BACKEND`. Like
+/// CrossOver, Auto means D3DMetal unless what is known about the game says otherwise.
+/// MetalSharp Wine 10's ntdll knows `d3dmetal` and `dxmt`; any other value is WineD3D
+/// (it has no DXVK lane, unlike CrossOver).
+#[derive(Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Default, Debug)]
+#[serde(rename_all = "lowercase")]
+pub enum Graphics {
+    #[default]
+    Auto,
+    /// Apple's D3DMetal: DirectX 11 and 12 (DirectX 9 and 10 stay on Wine's own).
+    D3dmetal,
+    /// DXMT: DirectX 10 and 11 on Metal.
+    Dxmt,
+    /// Wine's own WineD3D.
+    Wine,
+}
+
+impl Graphics {
+    pub const ALL: [Graphics; 4] = [Graphics::Auto, Graphics::D3dmetal, Graphics::Dxmt, Graphics::Wine];
+
+    pub fn name(self) -> &'static str {
+        match self {
+            Graphics::Auto => "auto",
+            Graphics::D3dmetal => "d3dmetal",
+            Graphics::Dxmt => "dxmt",
+            Graphics::Wine => "wine",
+        }
+    }
+
+    pub fn of(s: &str) -> Self {
+        Self::ALL.into_iter().find(|g| g.name() == s).unwrap_or_default()
+    }
+
+    /// What MetalSharp Wine reads in `GRAPHICS_BACKEND`.
+    pub fn env_value(self) -> &'static str {
+        match self {
+            Graphics::Auto | Graphics::D3dmetal => "d3dmetal",
+            g => g.name(),
+        }
+    }
+
+    /// The lane Highball found best for a game, as this engine names it.
+    pub fn from_renderer(r: &str) -> Option<Self> {
+        Some(match r {
+            "d3dmetal" | "vkd3d" => Graphics::D3dmetal,
+            "dxmt" => Graphics::Dxmt,
+            "wined3d" => Graphics::Wine,
+            // No DXVK lane here: Auto's own order (with its retries) decides.
+            _ => return None,
+        })
     }
 }
 
 #[derive(Clone, Serialize, Deserialize, PartialEq)]
 pub struct BottleConfig {
     pub name: String,
+    #[serde(default)]
+    pub engine: Engine,
     #[serde(default)]
     pub store: Option<String>,
     /// Unix path of the store's launcher, once installed.
@@ -146,6 +293,22 @@ pub struct BottleConfig {
     /// winetricks verbs already installed.
     #[serde(default)]
     pub verbs_done: Vec<String>,
+    /// D3DMetal engine: the lane of every game left on Auto.
+    #[serde(default)]
+    pub graphics: Graphics,
+    /// D3DMetal engine: Rosetta tells games the CPU has AVX/AVX2 (CrossOver's default),
+    /// which many recent games need to start.
+    #[serde(default = "yes")]
+    pub avx: bool,
+    /// D3DMetal engine: games that use NVIDIA DLSS get MetalFX upscaling instead.
+    #[serde(default)]
+    pub dlss: bool,
+    /// D3DMetal engine: DLSS runs on AMD FSR 4 instead of MetalFX (see `fsr4`).
+    #[serde(default)]
+    pub fsr4: bool,
+    /// The FSR 4 panel (status, quality mode, sharpness) opens next to the game.
+    #[serde(default)]
+    pub fsr4_panel: bool,
 }
 
 fn win10() -> String {
@@ -159,6 +322,7 @@ impl BottleConfig {
     pub fn new(name: &str, store: Option<&str>) -> Self {
         Self {
             name: name.to_owned(),
+            engine: Engine::Mach9,
             store: store.map(str::to_owned),
             launcher: None,
             backend: Backend::Auto,
@@ -170,6 +334,11 @@ impl BottleConfig {
             games: Vec::new(),
             game_settings: HashMap::new(),
             verbs_done: Vec::new(),
+            graphics: Graphics::Auto,
+            avx: true,
+            dlss: false,
+            fsr4: false,
+            fsr4_panel: false,
         }
     }
 
@@ -201,6 +370,18 @@ impl Bottle {
     }
     pub fn rules_file(&self) -> PathBuf {
         self.dir().join("compatdb.txt")
+    }
+    pub fn wine(&self) -> PathBuf {
+        match self.config.engine {
+            Engine::Mach9 => wine_bin(),
+            Engine::D3dmetal => d3dmetal_app().join("Contents/MacOS/wine"),
+        }
+    }
+    pub fn wineserver(&self) -> PathBuf {
+        match self.config.engine {
+            Engine::Mach9 => wineserver_bin(),
+            Engine::D3dmetal => d3dmetal_app().join("Contents/MacOS/wineserver"),
+        }
     }
     pub fn store(&self) -> Option<&'static Store> {
         stores::find(self.config.store.as_deref())
@@ -285,6 +466,28 @@ impl Bottle {
         r
     }
 
+    /// highball-db found the game runs best on WineD3D on Apple Silicon.
+    pub fn compat_wined3d(&self, g: &Game, fixes: &FixDb) -> bool {
+        fixes.compat(g.store, &g.store_id, &g.name).is_some_and(|c| c.renderer.as_deref() == Some("wined3d"))
+    }
+
+    /// Whether the game is kept off D3D12 so it runs D3D11 on DXMT: by hand, or in Auto
+    /// when highball-db has it working on DXMT and its .exe can fall back to D3D11.
+    pub fn hide_d3d12(&self, g: &Game, fixes: &FixDb) -> bool {
+        let s = self.config.game(&g.key);
+        match s.directx {
+            11 => true,
+            0 => s.backend == Backend::Auto && !s.fallback && self.auto_dx11(g, fixes),
+            _ => false,
+        }
+    }
+
+    /// Auto's choice of D3D11 for a game that has both APIs.
+    pub fn auto_dx11(&self, g: &Game, fixes: &FixDb) -> bool {
+        let dxmt = fixes.compat(g.store, &g.store_id, &g.name).is_some_and(|c| c.renderer.as_deref() == Some("dxmt"));
+        dxmt && g.exe.as_deref().and_then(auto::analyze_cached).is_some_and(|a| a.dual_dx())
+    }
+
     /// The rule for one game: its backend, Auto mode's checks, MetalFX, the frame
     /// limit and its fix from umu-protonfixes.
     pub fn game_rule(&self, g: &Game, fixes: &FixDb) -> Option<Rule> {
@@ -296,7 +499,7 @@ impl Bottle {
         };
         let mut r = Rule::new(exe);
         match s.backend {
-            Backend::Auto if s.fallback => set_backend(&mut r, Backend::Wined3d),
+            Backend::Auto if s.fallback || self.compat_wined3d(g, fixes) => set_backend(&mut r, Backend::Wined3d),
             Backend::Auto => {}
             b => set_backend(&mut r, b),
         }
@@ -309,6 +512,10 @@ impl Bottle {
         }
         if s.metal_hud {
             let _ = r.set(Key::MetalHud, "true");
+        }
+        if self.hide_d3d12(g, fixes) {
+            let _ = r.set(Key::DllOverrides, "d3d12=");
+            let _ = r.set(Key::DllOverrides, "d3d12core=");
         }
         if s.metalfx {
             let _ = r.set_env("DXMT_METALFX_SPATIAL_SWAPCHAIN", "1");
@@ -352,7 +559,121 @@ impl Bottle {
         let _ = fs::write(self.rules_file(), t.to_string());
     }
 
+    /// The D3DMetal engine's lane for the whole bottle (`None`) or one game. As in
+    /// CrossOver, a choice made by hand wins (the game's, then the bottle's); on Auto it is
+    /// where Auto moved the game after a failed start, else Highball's tested renderer,
+    /// else D3DMetal.
+    pub fn graphics(&self, game: Option<(&Game, &FixDb)>) -> Graphics {
+        let s = game.map(|(g, _)| self.config.game(&g.key)).unwrap_or_default();
+        if s.graphics != Graphics::Auto {
+            return s.graphics;
+        }
+        if self.config.graphics != Graphics::Auto {
+            return self.config.graphics;
+        }
+        if self.config.backend == Backend::Wined3d {
+            return Graphics::Wine;
+        }
+        if let Some(a) = s.auto_graphics {
+            return a;
+        }
+        game.and_then(|(g, f)| f.compat(g.store, &g.store_id, &g.name)?.renderer.as_deref().and_then(Graphics::from_renderer))
+            .unwrap_or(Graphics::D3dmetal)
+    }
+
+    /// Environment of a D3DMetal-engine process, with what CrossOver 26 sets around its
+    /// Wine: AVX under Rosetta, .NET without W^X (Unity and XNA games under Rosetta),
+    /// MSync, DLSS on MetalFX, the Metal HUD, a frame limit, and the game's own fix.
+    pub fn d3dmetal_env(&self, game: Option<(&Game, &FixDb)>) -> Vec<(String, String)> {
+        let s = game.map(|(g, _)| self.config.game(&g.key)).unwrap_or_default();
+        let lane = self.graphics(game);
+        let mut e: Vec<(String, String)> = vec![];
+        let mut set = |k: &str, v: &str| {
+            e.retain(|(x, _)| x != k);
+            e.push((k.to_owned(), v.to_owned()));
+        };
+        set("GRAPHICS_BACKEND", lane.env_value());
+        set("WINEMSYNC", if self.config.msync { "1" } else { "0" });
+        set("DOTNET_EnableWriteXorExecute", "0");
+        if self.config.avx {
+            set("ROSETTA_ADVERTISE_AVX", "1");
+        }
+        if self.config.metal_hud || s.metal_hud {
+            set("MTL_HUD_ENABLED", "1");
+        }
+        if self.config.dlss {
+            set("D3DM_ENABLE_METALFX", "1");
+            set("MULLION_ENABLE_NVEXT", "1");
+        }
+        // FSR 4 hooks the MetalFX scaler D3DMetal runs DLSS on; DXMT and WineD3D keep MetalFX.
+        if self.config.fsr4 && matches!(lane, Graphics::Auto | Graphics::D3dmetal) && crate::fsr4::installed() {
+            for (k, v) in crate::fsr4::env(self.config.fsr4_panel) {
+                set(&k, &v);
+            }
+        }
+        match lane {
+            Graphics::Auto | Graphics::D3dmetal if s.fps_limit > 0 => set("D3DM_MAX_FPS", &s.fps_limit.to_string()),
+            Graphics::Dxmt => {
+                let mut cfg = vec![];
+                if s.metalfx {
+                    set("MULLION_METALFX_SPATIAL_SWAPCHAIN", "1");
+                    if (s.metalfx_factor - 2.0).abs() > 0.01 {
+                        cfg.push(format!("d3d11.metalSpatialUpscaleFactor={:.2}", s.metalfx_factor));
+                    }
+                }
+                if s.fps_limit > 0 {
+                    cfg.push(format!("d3d11.preferredMaxFrameRate={}", s.fps_limit));
+                }
+                if !cfg.is_empty() {
+                    set("MULLION_CONFIG", &cfg.join(";"));
+                }
+            }
+            _ => {}
+        }
+        let mut dlls = vec![];
+        if let Some((g, fixes)) = game {
+            if lane == Graphics::Dxmt && self.hide_d3d12(g, fixes) {
+                dlls.extend(["d3d12=".to_owned(), "d3d12core=".to_owned()]);
+            }
+            // OptiScaler is a proxy of a DLL Wine has built in: the game's copy goes first.
+            if s.optiscaler {
+                if let Some(dll) = g.exe.as_deref().and_then(crate::optiscaler::proxy) {
+                    dlls.push(format!("{}=n,b", dll.trim_end_matches(".dll")));
+                }
+            }
+            if s.use_fixes {
+                if let Some(f) = fixes.find(g.store, &g.store_id) {
+                    dlls.extend(f.dlls.iter().map(|(dll, order)| format!("{dll}={order}")));
+                    for (k, v) in &f.env {
+                        set(k, v);
+                    }
+                }
+            }
+        }
+        if !dlls.is_empty() {
+            set("WINEDLLOVERRIDES", &dlls.join(";"));
+        }
+        e
+    }
+
     pub fn apply_env(&self, c: &mut Command) {
+        self.apply_env_for(c, None);
+    }
+
+    /// [`Bottle::apply_env`] for one game, which on the D3DMetal engine also carries
+    /// the game's own lane and settings.
+    pub fn apply_env_for(&self, c: &mut Command, game: Option<(&Game, &FixDb)>) {
+        if self.config.engine == Engine::D3dmetal {
+            // MetalSharp Wine picks the lane from GRAPHICS_BACKEND when each process
+            // starts (its rules file and the game folder's launch.env are not read by
+            // this build), and draws launchers' Chromium windows in software itself.
+            c.env("WINEPREFIX", self.prefix())
+                .env("WINEDEBUG", if self.config.debug { "err+all,warn+all,fixme-all,+seh,+loaddll" } else { "-all" });
+            for (k, v) in self.d3dmetal_env(game) {
+                c.env(k, v);
+            }
+            return;
+        }
         let mut every = Table::new();
         every.push(self.bottle_rule());
         let debug = if self.config.debug { "err+all,warn+all,fixme-all,+seh,+loaddll" } else { "-all" };
@@ -360,6 +681,9 @@ impl Bottle {
             .env("WINEDEBUG", debug)
             .env("WINEMSYNC", if self.config.msync { "1" } else { "0" })
             .env(ENV_VAR, every.to_string());
+        if let Some((icd_dir, real)) = vulkan_shim() {
+            c.env("VK_DRIVER_FILES", &icd_dir).env("ONESIDE_VK_DRIVER", real).env("ONESIDE_STATUS_DIR", &icd_dir);
+        }
         if self.rules_file().exists() {
             c.env(FILE_ENV_VAR, self.rules_file());
         }
@@ -375,20 +699,78 @@ impl Bottle {
         }
     }
 
-    fn command(&self, program: &Path, args: &[String], cwd: Option<&Path>) -> Command {
+    fn command(&self, program: &Path, args: &[String], cwd: Option<&Path>, game: Option<(&Game, &FixDb)>) -> Command {
         let mut c = Command::new(program);
         c.args(args).current_dir(cwd.unwrap_or(&self.dir())).stdin(Stdio::null());
-        self.apply_env(&mut c);
+        self.apply_env_for(&mut c, game);
         self.log_to(&mut c, &format!("wine {}", args.join(" ")));
         c
     }
 
     /// Starts wine with `args` and returns at once.
     pub fn spawn(&self, args: &[String], cwd: Option<&Path>) -> std::io::Result<Child> {
-        if !engine_installed() {
-            return Err(std::io::Error::other(format!("Falta el motor en {}", engine().display())));
+        self.spawn_for(args, cwd, None)
+    }
+
+    /// [`Bottle::spawn`] with one game's environment (its lane, frame limit, fix…).
+    pub fn spawn_for(&self, args: &[String], cwd: Option<&Path>, game: Option<(&Game, &FixDb)>) -> std::io::Result<Child> {
+        let wine = self.wine();
+        if !wine.exists() {
+            return Err(std::io::Error::other(format!("Falta el motor en {}", wine.display())));
         }
-        self.command(&wine_bin(), args, cwd).spawn()
+        let starts_steam = self.config.engine == Engine::D3dmetal
+            && args.first().is_some_and(|a| a.to_lowercase().ends_with("steam.exe"))
+            && !self.steam_running();
+        let child = self.command(&wine, args, cwd, game).spawn()?;
+        if starts_steam {
+            // Games Steam starts get Steam's environment: remember which one it has.
+            let env: HashMap<String, String> = self.d3dmetal_env(game).into_iter().collect();
+            let _ = fs::write(self.steam_env_file(), serde_json::to_vec(&env).unwrap_or_default());
+        }
+        Ok(child)
+    }
+
+    fn steam_env_file(&self) -> PathBuf {
+        self.dir().join("steam-env.json")
+    }
+
+    /// Steam of this bottle is open (its processes run from the bottle's drive_c).
+    pub fn steam_running(&self) -> bool {
+        let Ok(out) = Command::new("/bin/ps").args(["-Axww", "-o", "command="]).output() else { return false };
+        let root = self.drive_c().to_string_lossy().to_lowercase();
+        String::from_utf8_lossy(&out.stdout).lines().map(str::to_lowercase).any(|l| l.contains(&root) && l.contains("steam.exe"))
+    }
+
+    /// D3DMetal engine: a game started by Steam inherits Steam's environment, so when
+    /// the open Steam has another lane or settings than `g` needs, Steam is closed (it
+    /// opens again with the game's). `Err` when Steam does not close by itself.
+    pub fn steam_ready_for(&self, g: &Game, fixes: &FixDb, report: &dyn Fn(String)) -> Result<(), String> {
+        if self.config.engine != Engine::D3dmetal || !self.steam_running() {
+            return Ok(());
+        }
+        let want: HashMap<String, String> = self.d3dmetal_env(Some((g, fixes))).into_iter().collect();
+        let has: Option<HashMap<String, String>> = fs::read(self.steam_env_file()).ok().and_then(|d| serde_json::from_slice(&d).ok());
+        if has.as_ref() == Some(&want) {
+            return Ok(());
+        }
+        // Without a record, Steam was opened with the bottle's settings.
+        let bottle: HashMap<String, String> = self.d3dmetal_env(None).into_iter().collect();
+        if has.is_none() && bottle == want {
+            return Ok(());
+        }
+        let Some(steam) = self.config.launcher.clone() else { return Ok(()) };
+        report(format!("Reiniciando Steam para {} ({})", g.name, self.graphics(Some((g, fixes))).env_value()));
+        let _ = self.spawn(&[steam, "-shutdown".into()], None).and_then(|mut c| c.wait());
+        for _ in 0..60 {
+            if !self.steam_running() {
+                // Its last helpers end a moment after steam.exe.
+                std::thread::sleep(std::time::Duration::from_secs(2));
+                let _ = fs::remove_file(self.steam_env_file());
+                return Ok(());
+            }
+            std::thread::sleep(std::time::Duration::from_millis(500));
+        }
+        Err("Steam no se ha cerrado (¿está descargando algo?). Ciérralo y vuelve a darle a Jugar.".into())
     }
 
     /// Runs wine with `args` and waits for it.
@@ -398,14 +780,14 @@ impl Bottle {
 
     /// Stops every Windows process of the bottle.
     pub fn kill_all(&self) {
-        if let Ok(mut c) = self.command(&wineserver_bin(), &["-k".to_owned()], None).spawn() {
+        if let Ok(mut c) = self.command(&self.wineserver(), &["-k".to_owned()], None, None).spawn() {
             let _ = c.wait();
         }
     }
 
     /// Waits until every Windows process of the bottle has ended.
     pub fn wait_idle(&self) {
-        if let Ok(mut c) = self.command(&wineserver_bin(), &["-w".to_owned()], None).spawn() {
+        if let Ok(mut c) = self.command(&self.wineserver(), &["-w".to_owned()], None, None).spawn() {
             let _ = c.wait();
         }
     }
@@ -416,7 +798,11 @@ impl Bottle {
 
     pub fn set_retina(&self) -> std::io::Result<i32> {
         let on = if self.config.retina { "y" } else { "n" };
-        self.run(&args(&["reg", "add", "HKCU\\Software\\Wine\\Mac Driver", "/v", "RetinaMode", "/t", "REG_SZ", "/d", on, "/f"]), None)
+        self.run(&args(&["reg", "add", "HKCU\\Software\\Wine\\Mac Driver", "/v", "RetinaMode", "/t", "REG_SZ", "/d", on, "/f"]), None)?;
+        // As CrossOver's high resolution mode: Windows draws at 192 dpi on a Retina
+        // pixel grid, so text and menus keep their size instead of shrinking by half.
+        let dpi = if self.config.retina { "192" } else { "96" };
+        self.run(&args(&["reg", "add", "HKCU\\Control Panel\\Desktop", "/v", "LogPixels", "/t", "REG_DWORD", "/d", dpi, "/f"]), None)
     }
 
     /// Packs the bottle into one file to keep or move to another Mac.
@@ -557,6 +943,94 @@ pub fn install_engine(rel: &Release, mut progress: impl FnMut(f32)) -> Result<()
     Ok(())
 }
 
+// ------------------------------------------------------------ D3DMetal engine
+
+/// The MetalSharp Wine developer's team, which signs and notarizes the app.
+const D3DMETAL_TEAM: &str = "TQK8H7V7RP";
+
+pub fn d3dmetal_version() -> String {
+    fs::read_to_string(support().join("engine-metalsharp/VERSION")).map(|s| s.trim().to_owned()).unwrap_or_default()
+}
+
+/// Rosetta 2 runs the x86_64 Wine D3DMetal needs.
+pub fn rosetta_installed() -> bool {
+    Command::new("/usr/bin/arch").args(["-x86_64", "/usr/bin/true"]).stdout(Stdio::null()).stderr(Stdio::null()).status().is_ok_and(|s| s.success())
+}
+
+/// Downloads MetalSharp Wine x86_64 (Wine 11 under Rosetta with Apple's D3DMetal from the
+/// Game Porting Toolkit) from its GitHub releases, checks it against the release's
+/// SHA256SUMS and its Developer ID signature, and puts it in `engine-metalsharp`.
+pub fn install_d3dmetal(mut progress: impl FnMut(f32)) -> Result<String, String> {
+    if !rosetta_installed() {
+        return Err("Para D3DMetal hace falta Rosetta. Instálalo con: softwareupdate --install-rosetta".into());
+    }
+    let mut body = crate::http_get("https://api.github.com/repos/metalsharp/MetalSharp-Wine/releases/latest")
+        .header("User-Agent", "one-side")
+        .header("Accept", "application/vnd.github+json")
+        .call()
+        .map_err(|e| format!("No se pudo consultar GitHub: {e}"))?
+        .into_body();
+    let j: serde_json::Value = serde_json::from_str(&body.read_to_string().map_err(|e| e.to_string())?).map_err(|e| e.to_string())?;
+    let tag = j["tag_name"].as_str().ok_or("Respuesta de GitHub sin versión")?.to_owned();
+    if tag == d3dmetal_version() && d3dmetal_installed() {
+        return Ok(tag);
+    }
+    let assets = j["assets"].as_array().ok_or("La versión no trae archivos")?;
+    let asset = |pred: &dyn Fn(&str) -> bool| {
+        assets.iter().find_map(|a| {
+            let n = a["name"].as_str()?;
+            pred(n).then(|| (n.to_owned(), a["browser_download_url"].as_str().unwrap_or_default().to_owned()))
+        })
+    };
+    let (zip_name, zip_url) = asset(&|n| n.ends_with("-x86_64.zip")).ok_or("No hay versión x86_64 con D3DMetal")?;
+    let (_, sums_url) = asset(&|n| n == "SHA256SUMS").ok_or("La versión no trae SHA256SUMS")?;
+    let sums = crate::http_get(&sums_url).call().map_err(|e| e.to_string())?.into_body().read_to_string().map_err(|e| e.to_string())?;
+    let want = sums
+        .lines()
+        .find_map(|l| l.split_once(char::is_whitespace).filter(|(_, f)| f.trim().trim_start_matches('*') == zip_name).map(|(h, _)| h.to_lowercase()))
+        .ok_or("SHA256SUMS no tiene el archivo")?;
+
+    let zip = downloads_dir().join(&zip_name);
+    crate::install::download(&zip_url, &zip, &mut progress)?;
+    let out = Command::new("/usr/bin/shasum").args(["-a", "256"]).arg(&zip).output().map_err(|e| e.to_string())?;
+    let got = String::from_utf8_lossy(&out.stdout).split_whitespace().next().unwrap_or_default().to_lowercase();
+    if got != want {
+        let _ = fs::remove_file(&zip);
+        return Err("La descarga de D3DMetal no coincide con su suma SHA-256".into());
+    }
+
+    let base = support().join("engine-metalsharp");
+    let staging = support().join("engine-metalsharp.staging");
+    let _ = fs::remove_dir_all(&staging);
+    fs::create_dir_all(&staging).map_err(|e| e.to_string())?;
+    let st = Command::new("/usr/bin/ditto").args(["-x", "-k"]).arg(&zip).arg(&staging).status().map_err(|e| e.to_string())?;
+    let app = staging.join("MetalSharp-Wine-x86_64.app");
+    if !st.success() || !app.join("Contents/MacOS/wine").exists() {
+        let _ = fs::remove_dir_all(&staging);
+        return Err("El motor D3DMetal descargado no es válido".into());
+    }
+    let sig = Command::new("/usr/bin/codesign").args(["-dv", "--verbose=2"]).arg(&app).output().map_err(|e| e.to_string())?;
+    let ok = Command::new("/usr/bin/codesign").args(["--verify", "--strict"]).arg(&app).status().is_ok_and(|s| s.success());
+    if !ok || !String::from_utf8_lossy(&sig.stderr).contains(&format!("TeamIdentifier={D3DMETAL_TEAM}")) {
+        let _ = fs::remove_dir_all(&staging);
+        return Err("La firma del motor D3DMetal no es la esperada".into());
+    }
+
+    for b in Bottle::load_all().into_iter().filter(|b| b.config.engine == Engine::D3dmetal) {
+        b.kill_all();
+    }
+    let old = support().join("engine-metalsharp.old");
+    let _ = fs::remove_dir_all(&old);
+    if base.exists() {
+        fs::rename(&base, &old).map_err(|e| e.to_string())?;
+    }
+    fs::rename(&staging, &base).map_err(|e| e.to_string())?;
+    let _ = fs::remove_dir_all(&old);
+    let _ = fs::remove_file(&zip);
+    fs::write(base.join("VERSION"), &tag).map_err(|e| e.to_string())?;
+    Ok(tag)
+}
+
 // ------------------------------------------------------------ shortcuts
 
 /// Makes `~/Applications/One-Side/<game>.app`, which starts the game through One-Side,
@@ -597,4 +1071,71 @@ pub fn make_shortcut(g: &Game) -> Result<PathBuf, String> {
     );
     fs::write(contents.join("Info.plist"), plist).map_err(|e| e.to_string())?;
     Ok(app)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn env(b: &Bottle, game: Option<(&Game, &FixDb)>) -> HashMap<String, String> {
+        b.d3dmetal_env(game).into_iter().collect()
+    }
+
+    fn game(key: &str) -> Game {
+        Game {
+            key: key.into(),
+            name: "Prueba".into(),
+            source: "Propio",
+            bottle: "b".into(),
+            launch: crate::library::Launch::Url(String::new()),
+            custom: None,
+            installed: true,
+            exe: None,
+            store: "",
+            store_id: String::new(),
+            art: Default::default(),
+        }
+    }
+
+    #[test]
+    fn d3dmetal_env_follows_crossover_defaults_and_choices() {
+        let mut b = Bottle { id: "b".into(), config: BottleConfig::new("b", None) };
+        b.config.engine = Engine::D3dmetal;
+        let fixes = FixDb::default();
+        let e = env(&b, None);
+        assert_eq!(e["GRAPHICS_BACKEND"], "d3dmetal");
+        assert_eq!(e["ROSETTA_ADVERTISE_AVX"], "1");
+        assert_eq!(e["DOTNET_EnableWriteXorExecute"], "0");
+        assert_eq!(e["WINEMSYNC"], "1");
+        assert!(!e.contains_key("D3DM_ENABLE_METALFX"));
+
+        b.config.avx = false;
+        b.config.dlss = true;
+        let e = env(&b, None);
+        assert!(!e.contains_key("ROSETTA_ADVERTISE_AVX"));
+        assert_eq!(e["D3DM_ENABLE_METALFX"], "1");
+
+        let g = game("g");
+        let mut s = GameSettings { fps_limit: 60, ..Default::default() };
+        b.config.game_settings.insert("g".into(), s.clone());
+        assert_eq!(env(&b, Some((&g, &fixes)))["D3DM_MAX_FPS"], "60");
+
+        s.graphics = Graphics::Dxmt;
+        s.metalfx = true;
+        b.config.game_settings.insert("g".into(), s.clone());
+        let e = env(&b, Some((&g, &fixes)));
+        assert_eq!(e["GRAPHICS_BACKEND"], "dxmt");
+        assert_eq!(e["MULLION_METALFX_SPATIAL_SWAPCHAIN"], "1");
+        assert_eq!(e["MULLION_CONFIG"], "d3d11.preferredMaxFrameRate=60");
+
+        // The game's own choice wins over the bottle's; the bottle's over Auto's memory.
+        b.config.graphics = Graphics::Wine;
+        assert_eq!(b.graphics(Some((&g, &fixes))), Graphics::Dxmt);
+        s.graphics = Graphics::Auto;
+        s.auto_graphics = Some(Graphics::D3dmetal);
+        b.config.game_settings.insert("g".into(), s.clone());
+        assert_eq!(b.graphics(Some((&g, &fixes))), Graphics::Wine);
+        b.config.graphics = Graphics::Auto;
+        assert_eq!(b.graphics(Some((&g, &fixes))), Graphics::D3dmetal);
+    }
 }

@@ -9,7 +9,7 @@ use std::thread;
 use std::time::Duration;
 
 
-use crate::engine::{self, Backend, Bottle, BottleConfig, CustomGame, args};
+use crate::engine::{self, Backend, Bottle, BottleConfig, CustomGame, Engine, Graphics, args};
 use crate::fixes::{self, FixDb};
 use crate::library::{self, Game, Launch};
 use crate::tools;
@@ -76,7 +76,14 @@ pub fn download(url: &str, dest: &Path, mut progress: impl FnMut(f32)) -> Result
 
 /// Creates a bottle and runs `wineboot -i` in it.
 pub fn create_bottle(name: &str, store: Option<&str>, h: &Handle) -> Result<Bottle, String> {
-    let b = Bottle { id: Bottle::new_id(name), config: BottleConfig::new(name, store) };
+    create_bottle_on(name, store, Engine::Mach9, h)
+}
+
+/// Creates a bottle on `engine` and runs `wineboot -i` in it.
+pub fn create_bottle_on(name: &str, store: Option<&str>, engine: Engine, h: &Handle) -> Result<Bottle, String> {
+    let mut config = BottleConfig::new(name, store);
+    config.engine = engine;
+    let b = Bottle { id: Bottle::new_id(name), config };
     b.save().map_err(|e| e.to_string())?;
     set(h, |s| {
         s.preparing.push(b.id.clone());
@@ -114,7 +121,25 @@ fn install(store: &'static Store, own: Option<PathBuf>, h: &Handle) -> Result<()
     let existing = Bottle::load_all().into_iter().find(|b| b.config.store.as_deref() == Some(store.id));
     let mut b = match existing {
         Some(b) => b,
-        None => create_bottle(store.name, Some(store.id), h)?,
+        None => {
+            // DirectX 11/12 games, most of a Steam library, run on Apple's D3DMetal as in
+            // CrossOver; the engine is fetched the first time. Without it (no Rosetta, no
+            // network) the bottle stays on Mach9.
+            let mut engine = Engine::Mach9;
+            if store.id == "steam" {
+                if !engine::d3dmetal_installed() {
+                    set(h, |s| _ = s.installs.insert(store.id, State::Downloading(0.0)));
+                    if let Err(e) = engine::install_d3dmetal(|p| set(h, |s| _ = s.installs.insert(store.id, State::Downloading(p)))) {
+                        eprintln!("D3DMetal: {e}");
+                    }
+                    set(h, |s| _ = s.installs.insert(store.id, State::Preparing));
+                }
+                if engine::d3dmetal_installed() {
+                    engine = Engine::D3dmetal;
+                }
+            }
+            create_bottle_on(store.name, Some(store.id), engine, h)?
+        }
     };
 
     let st = if store.silent.is_some() { State::Installing } else { State::WaitingForUser };
@@ -212,10 +237,10 @@ where
 
 pub fn spawn_update_fixes(h: Handle) {
     let h2 = h.clone();
-    spawn_job("fixes".into(), "Bajando umu-protonfixes…".into(), h, move |_| {
+    spawn_job("fixes".into(), "Bajando arreglos y compatibilidad…".into(), h, move |_| {
         let db = fixes::update()?;
         h2.lock().unwrap().fixes_dirty = true;
-        Ok(Some(format!("Arreglos actualizados: {} juegos.", db.count())))
+        Ok(Some(format!("Arreglos actualizados: {} juegos con arreglo, {} en la base de Highball.", db.count(), db.compat_count())))
     });
 }
 
@@ -269,6 +294,21 @@ pub fn play(g: &Game, games: &[Game], fixes: &FixDb, report: &dyn Fn(String)) ->
         }
     }
     b.write_rules(games, fixes);
+    if s.use_fixes {
+        let done = crate::gamefix::apply(&b, g, fixes);
+        if !done.is_empty() {
+            report(format!("Arreglos para Mac: {}", done.join(", ")));
+        }
+    }
+    if b.config.engine == Engine::D3dmetal {
+        if let Some(exe) = g.exe.as_deref() {
+            match crate::optiscaler::sync(exe, s.optiscaler) {
+                Ok(Some(what)) => report(what),
+                Ok(None) => {}
+                Err(e) => report(format!("OptiScaler: {e}")),
+            }
+        }
+    }
     let start_game = |b: &Bottle| -> Result<i32, String> {
         if let Launch::Native { kind, app } = &g.launch {
             report("Preparando el juego…".into());
@@ -278,7 +318,7 @@ pub fn play(g: &Game, games: &[Game], fixes: &FixDb, report: &dyn Fn(String)) ->
             if let Some(cwd) = cwd {
                 c.current_dir(cwd);
             }
-            b.apply_env(&mut c);
+            b.apply_env_for(&mut c, Some((g, fixes)));
             for (k, v) in env {
                 if k != "WINEPREFIX" {
                     c.env(k, v);
@@ -288,13 +328,39 @@ pub fn play(g: &Game, games: &[Game], fixes: &FixDb, report: &dyn Fn(String)) ->
             report("Jugando".into());
             return Ok(c.spawn().map_err(|e| e.to_string())?.wait().map_err(|e| e.to_string())?.code().unwrap_or(-1));
         }
-        let (a, cwd) = g.command();
+        let (mut a, cwd) = g.command();
+        if b.config.engine == Engine::D3dmetal {
+            // The Mach9 engine adds a fix's arguments through its rules; here they go
+            // on the command line (after -applaunch <id>, Steam hands them to the game).
+            if b.config.game(&g.key).use_fixes && !matches!(g.launch, Launch::Url(_)) {
+                if let Some(f) = fixes.find(g.store, &g.store_id) {
+                    a.extend(f.args.iter().cloned());
+                }
+            }
+            if matches!(g.launch, Launch::Steam { .. }) {
+                b.steam_ready_for(g, fixes, report)?;
+            }
+        }
         report("Jugando".into());
-        Ok(b.spawn(&a, cwd.as_deref()).map_err(|e| e.to_string())?.wait().map_err(|e| e.to_string())?.code().unwrap_or(-1))
+        Ok(b.spawn_for(&a, cwd.as_deref(), Some((g, fixes))).map_err(|e| e.to_string())?.wait().map_err(|e| e.to_string())?.code().unwrap_or(-1))
     };
     let start = std::time::Instant::now();
     let code = start_game(&b)?;
+    if b.config.engine == Engine::D3dmetal {
+        return d3dmetal_auto_retry(&mut b, g, fixes, code, start.elapsed(), report, &start_game);
+    }
     let watch = matches!(g.launch, Launch::Exe { .. } | Launch::Native { .. }) && s.backend == Backend::Auto && !s.fallback;
+    if watch && code != 0 && start.elapsed() < Duration::from_secs(20) && s.directx == 0 && b.auto_dx11(g, fixes) {
+        // Auto's D3D11 first: give the game its D3D12 back before leaving Metal.
+        let mut gs = s.clone();
+        gs.directx = 12;
+        b.config.game_settings.insert(g.key.clone(), gs);
+        b.save().map_err(|e| e.to_string())?;
+        b.write_rules(games, fixes);
+        report("Reintentando con DirectX 12".into());
+        start_game(&b)?;
+        return Ok(Some(format!("{} se cerró al arrancar con DirectX 11. El modo Auto lo ha pasado a DirectX 12 y lo recordará.", g.name)));
+    }
     if watch && code != 0 && start.elapsed() < Duration::from_secs(20) {
         let mut gs = s.clone();
         gs.fallback = true;
@@ -309,6 +375,53 @@ pub fn play(g: &Game, games: &[Game], fixes: &FixDb, report: &dyn Fn(String)) ->
         )));
     }
     Ok(None)
+}
+
+/// D3DMetal engine's Auto mode: a game on a lane Auto chose that dies in its first 20 s
+/// gets the next lane (D3DMetal → DXMT for DirectX 10/11 games → WineD3D), remembered.
+fn d3dmetal_auto_retry(
+    b: &mut Bottle,
+    g: &Game,
+    fixes: &FixDb,
+    code: i32,
+    took: Duration,
+    report: &dyn Fn(String),
+    start_game: &dyn Fn(&Bottle) -> Result<i32, String>,
+) -> Result<Option<String>, String> {
+    let s = b.config.game(&g.key);
+    let auto = s.graphics == Graphics::Auto && b.config.graphics == Graphics::Auto && b.config.backend == Backend::Auto;
+    let watch = matches!(g.launch, Launch::Exe { .. } | Launch::Native { .. });
+    if !auto || !watch || code == 0 || took >= Duration::from_secs(20) {
+        return Ok(None);
+    }
+    let dx11 = g.exe.as_deref().and_then(crate::auto::analyze_cached).is_some_and(|a| {
+        a.apis.iter().any(|x| matches!(x, crate::auto::Api::Dx10 | crate::auto::Api::Dx11))
+    });
+    let next = match b.graphics(Some((g, fixes))) {
+        Graphics::Auto | Graphics::D3dmetal if dx11 => Graphics::Dxmt,
+        Graphics::Wine => return Ok(None),
+        _ => Graphics::Wine,
+    };
+    let mut gs = s.clone();
+    gs.auto_graphics = Some(next);
+    b.config.game_settings.insert(g.key.clone(), gs);
+    b.save().map_err(|e| e.to_string())?;
+    report(format!("Reintentando con {}", graphics_label(next)));
+    start_game(b)?;
+    Ok(Some(format!(
+        "{} se cerró al arrancar. El modo Auto lo ha pasado a {} y lo recordará.",
+        g.name,
+        graphics_label(next)
+    )))
+}
+
+pub fn graphics_label(g: Graphics) -> &'static str {
+    match g {
+        Graphics::Auto => "Automático",
+        Graphics::D3dmetal => "D3DMetal",
+        Graphics::Dxmt => "DXMT",
+        Graphics::Wine => "WineD3D",
+    }
 }
 
 pub fn spawn_play(g: Game, games: Vec<Game>, h: Handle) {

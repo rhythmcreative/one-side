@@ -1,0 +1,13 @@
+OptiScaler — https://github.com/optiscaler/OptiScaler
+
+When you turn on OptiScaler for a game, One-Side downloads OptiScaler's release package
+from its GitHub releases, checks it against the SHA-256 GitHub publishes for it, and copies
+OptiScaler.dll unmodified into the game's folder under a proxy name (dxgi.dll, winmm.dll or
+version.dll), together with OptiScaler.ini set to use DLSS. One-Side never overwrites a file
+of the game's and removes exactly those files when you turn it off. One-Side does not
+include or distribute OptiScaler.
+
+OptiScaler is licensed under the GNU General Public License v3.0; its complete source code
+is at the address above. Its package carries components of AMD FidelityFX, Intel XeSS and
+Microsoft DirectX under their own licenses, listed in its Licenses folder. One-Side is not
+affiliated with OptiScaler, AMD, Intel, NVIDIA or Microsoft.

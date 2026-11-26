@@ -1,0 +1,13 @@
+fsr4-native-macos — https://github.com/UzenUPoZiTiV4ik/fsr4-native-macos
+
+When you turn on "FSR 4 en lugar de MetalFX" in a D3DMetal bottle, One-Side downloads that
+project's release package from its GitHub releases, checks it against the release's
+SHA256SUMS, and builds it on your Mac with Apple's Command Line Tools. Before building,
+One-Side changes how the project loads its Metal shaders so that macOS's built-in Metal
+compiler is used instead of Xcode's (One-Side's own files in its fsr4/ folder). One-Side
+does not include or distribute the project.
+
+fsr4-native-macos is licensed under the MIT License. Its FSR 4 model data comes from AMD's
+FidelityFX SDK under AMD's license terms, which the project keeps in its third_party/
+folder with the provenance of each file. AMD and FidelityFX are trademarks of Advanced
+Micro Devices, Inc. One-Side is not affiliated with AMD or with that project.

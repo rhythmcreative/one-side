@@ -73,6 +73,11 @@ pub fn url_encode(s: &str) -> String {
 
 // ------------------------------------------------------------ downloads
 
+/// Whether the picture at `url` could not be downloaded this run.
+pub fn failed(url: &str) -> bool {
+    FAILED.lock().unwrap().contains(url)
+}
+
 static FETCHING: LazyLock<Mutex<HashSet<String>>> = LazyLock::new(Default::default);
 static FAILED: LazyLock<Mutex<HashSet<String>>> = LazyLock::new(Default::default);
 
@@ -89,9 +94,9 @@ pub fn cached(url: &str) -> Option<PathBuf> {
     }
     let url = url.to_owned();
     std::thread::spawn(move || {
-        let r = crate::http_get(&url).call().map_err(|_| ()).and_then(|r| r.into_body().with_config().limit(40 << 20).read_to_vec().map_err(|_| ()));
+        let r = download(&url).or_else(|e| steam_moved(&url).ok_or(e).and_then(|u| download(&u)));
         match r {
-            Ok(bytes) if !bytes.is_empty() => {
+            Ok(bytes) => {
                 let _ = fs::create_dir_all(out.parent().unwrap());
                 let tmp = out.with_extension("part");
                 if fs::write(&tmp, bytes).is_ok() && fs::rename(&tmp, &out).is_ok() {
@@ -106,6 +111,52 @@ pub fn cached(url: &str) -> Option<PathBuf> {
         FETCHING.lock().unwrap().remove(&url);
     });
     None
+}
+
+fn download(url: &str) -> Result<Vec<u8>, ()> {
+    crate::http_get(url)
+        .call()
+        .map_err(|_| ())
+        .and_then(|r| r.into_body().with_config().limit(40 << 20).read_to_vec().map_err(|_| ()))
+        .and_then(|b| if b.is_empty() { Err(()) } else { Ok(b) })
+}
+
+/// Steam keeps newer library art under hashed folders, so the plain
+/// `steam/apps/<id>/library_600x900.jpg` address is a 404 for many games
+/// (Rayman Origins among them). Asks the store for the real address.
+fn steam_moved(url: &str) -> Option<String> {
+    let rest = url.strip_prefix("https://cdn.cloudflare.steamstatic.com/steam/apps/")?;
+    let (id, file) = rest.split_once('/')?;
+    let keys: &[&str] = match file {
+        "library_600x900.jpg" => &["library_capsule_2x", "library_capsule", "hero_capsule_2x", "hero_capsule"],
+        "library_hero.jpg" => &["library_hero", "library_hero_2x"],
+        _ => return None,
+    };
+    let assets = steam_assets(id)?;
+    let format = assets["asset_url_format"].as_str()?;
+    let name = keys.iter().find_map(|k| assets[*k].as_str())?;
+    Some(format!("https://shared.akamai.steamstatic.com/store_item_assets/{}", format.replace("${FILENAME}", name)))
+}
+
+/// The store's asset list for one app, fetched once per run.
+fn steam_assets(id: &str) -> Option<serde_json::Value> {
+    static SEEN: LazyLock<Mutex<HashMap<String, Option<serde_json::Value>>>> = LazyLock::new(Default::default);
+    if let Some(v) = SEEN.lock().unwrap().get(id) {
+        return v.clone();
+    }
+    let appid: u64 = id.parse().ok()?;
+    let input = serde_json::json!({
+        "ids": [{ "appid": appid }],
+        "context": { "language": "english", "country_code": "US" },
+        "data_request": { "include_assets": true },
+    });
+    let url = format!("https://api.steampowered.com/IStoreBrowseService/GetItems/v1/?input_json={}", url_encode(&input.to_string()));
+    let text = crate::http_get(&url).call().ok()?.into_body().read_to_string().ok()?;
+    let j: serde_json::Value = serde_json::from_str(&text).ok()?;
+    let assets = j["response"]["store_items"][0]["assets"].clone();
+    let v = assets.is_object().then_some(assets);
+    SEEN.lock().unwrap().insert(id.to_owned(), v.clone());
+    v
 }
 
 // ------------------------------------------------------------ Steam by name
@@ -442,5 +493,16 @@ mod tests {
         let png = icon_png(&d).expect("icon");
         let img = image::load_from_memory(&png).unwrap();
         assert!(img.width() >= 32, "{}", img.width());
+    }
+}
+
+#[cfg(test)]
+mod moved_tests {
+    #[test]
+    #[ignore = "network"]
+    fn finds_moved_steam_cover() {
+        let u = super::steam_moved("https://cdn.cloudflare.steamstatic.com/steam/apps/207490/library_600x900.jpg").expect("moved");
+        assert!(u.contains("store_item_assets/steam/apps/207490/") && u.contains("library_capsule"), "{u}");
+        assert!(super::download(&u).is_ok());
     }
 }

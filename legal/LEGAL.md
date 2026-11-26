@@ -27,6 +27,11 @@ pieza y cómo lo cumple One-Side.
   licencias y dónde está su código fuente.
 - winetricks (LGPL-2.1+) y umu-protonfixes (BSD-2-Clause) se descargan de sus
   repositorios oficiales y no se modifican.
+- highball-db: sus datos de juegos son CC0-1.0 (dominio público) y su mapa de
+  antitrampas deriva de Are We Anti-Cheat Yet? (MIT), cuyo aviso va en
+  `legal/runtime/highball-db.txt` y en los avisos de terceros. One-Side no usa sus
+  predicciones basadas en ProtonDB (ODbL). One-Side no está afiliado a Highball; la
+  app dice de dónde viene cada dato («Datos de highball-db»).
 - **Si algún día el motor se mete dentro de la app**, habrá que incluir los textos
   LGPL (ya están en `legal/runtime/`) y una oferta del código fuente de Wine, DXMT y
   vkd3d-proton en la versión exacta que se incluya.
@@ -149,3 +154,19 @@ One-Side se publica como **proyecto de código abierto en GitHub**:
   una vez por búsqueda (600 ms después de dejar de escribir), sin repetir (caché) y
   diciendo quién es. Si Lutris pidiera dejar de usarla, se quita la búsqueda en Lutris
   y el resto de la app sigue igual.
+
+- MetalSharp Wine (AGPL-3.0-or-later) es el motor D3DMetal. One-Side lo descarga de sus
+  versiones en GitHub, comprueba su suma SHA-256 y su firma, y lo ejecuta sin cambios; no
+  lo incluye ni lo modifica. Lleva D3DMetal de Apple (Game Porting Toolkit) sin cambios y
+  bajo la licencia de Apple, que está dentro de la app. Detalles en
+  `legal/runtime/metalsharp-wine.txt`. One-Side no está afiliado a Apple ni a MetalSharp.
+
+- fsr4-native-macos (MIT) pone AMD FSR 4 donde D3DMetal usa MetalFX para DLSS. One-Side
+  lo descarga de sus versiones en GitHub al activarlo, comprueba su suma SHA-256 y lo
+  compila en el Mac del usuario, cambiando solo cómo carga sus shaders Metal (para no
+  necesitar Xcode); no lo incluye. Su modelo FSR 4 es de AMD, con la licencia de AMD.
+  Detalles en `legal/runtime/fsr4-native-macos.txt`. One-Side no está afiliado a AMD.
+- OptiScaler (GPL-3.0) se descarga de sus versiones en GitHub solo si el usuario lo activa
+  en un juego, se comprueba su suma SHA-256 y se copia sin cambios en la carpeta del juego;
+  One-Side no lo incluye y lo quita al desactivarlo. Detalles en `legal/runtime/optiscaler.txt`.
+

@@ -95,6 +95,13 @@ struct CoverCell: View {
                         .padding(6).background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 6)).padding(6)
                 }
             }
+            .overlay(alignment: .topTrailing) {
+                if game.compat?.level == "bad" {
+                    Image(systemName: "nosign").font(.caption.bold()).foregroundStyle(.white)
+                        .padding(5).background(.red, in: Circle()).padding(6)
+                        .help("No funciona en Mac: \(game.compat?.anticheat.joined(separator: ", ") ?? "")")
+                }
+            }
             .clipShape(RoundedRectangle(cornerRadius: 10))
             .overlay(RoundedRectangle(cornerRadius: 10).strokeBorder(selected ? Color.accentColor : .clear, lineWidth: 3))
             .shadow(color: .black.opacity(hover ? 0.28 : 0.14), radius: hover ? 12 : 5, y: hover ? 8 : 3)
@@ -184,29 +191,53 @@ struct GameInspector: View {
                                 PillButton(title: game.isGame ? "Jugar" : "Abrir", symbol: "play.fill", tint: .black) { core.play(game) }
                                     .keyboardShortcut(.defaultAction)
                             } else {
-                                PillButton(title: "Descargar", symbol: "arrow.down", tint: .black) { core.send(["cmd": "download", "key": game.key]) }
+                                PillButton(title: "Descargar", symbol: "arrow.down", tint: .black) { core.download(game) }
                             }
                         }
                         .padding(16)
                         }
                     .clipShape(RoundedRectangle(cornerRadius: 18))
                     .shadow(color: .black.opacity(0.2), radius: 10, y: 4)
-                    if s.fallback {
+                    if let lane = s.lane, s.autoGraphics != nil, (s.graphics ?? "auto") == "auto" {
+                        Label("Se cerró al arrancar; Auto usa \(lane)", systemImage: "exclamationmark.triangle.fill")
+                            .font(.callout).foregroundStyle(.orange)
+                    } else if s.fallback && s.lane == nil {
                         Label("Se cerró con Metal; Auto usa WineD3D", systemImage: "exclamationmark.triangle.fill")
                             .font(.callout).foregroundStyle(.orange)
                     } else {
                         Label(game.analysis ?? "Listo para jugar", systemImage: "checkmark.seal.fill")
                             .font(.callout).foregroundStyle(.secondary)
                     }
+                    if let c = game.compat { CompatBox(compat: c) }
 
                     GroupBox {
                         VStack(alignment: .leading, spacing: 12) {
-                            Picker("Gráficos", selection: Binding(get: { s.backend }, set: { set("backend", $0) })) {
-                                Text("Auto").tag("auto"); Text("Metal").tag("metal"); Text("WineD3D").tag("wined3d")
+                            if let lane = s.lane {
+                                Picker("Gráficos", selection: Binding(get: { s.graphics ?? "auto" }, set: { set("graphics", $0) })) {
+                                    Text((s.graphics ?? "auto") == "auto" ? "Auto (\(lane))" : "Auto").tag("auto")
+                                    Text("D3DMetal").tag("d3dmetal"); Text("DXMT").tag("dxmt"); Text("WineD3D").tag("wine")
+                                }
+                                if s.autoGraphics != nil && (s.graphics ?? "auto") == "auto" {
+                                    Button("Volver a probar desde D3DMetal") { set("graphics", "auto") }.controlSize(.small)
+                                }
+                            } else {
+                                Picker("Gráficos", selection: Binding(get: { s.backend }, set: { set("backend", $0) })) {
+                                    Text("Auto").tag("auto"); Text("Metal").tag("metal"); Text("WineD3D").tag("wined3d")
+                                }
+                                if s.fallback { Button("Volver a probar Metal") { set("retryMetal", true) }.controlSize(.small) }
                             }
-                            if s.fallback { Button("Volver a probar Metal") { set("retryMetal", true) }.controlSize(.small) }
+                            if (s.lane == nil || s.lane == "DXMT") && (game.dualDx == true || (s.directx ?? 0) != 0) {
+                                Picker("DirectX", selection: Binding(get: { s.directx ?? 0 }, set: { set("directx", $0) })) {
+                                    Text(game.autoDx11 == true ? "Auto (DirectX 11)" : "Auto (DirectX 12)").tag(0)
+                                    Text("DirectX 11").tag(11); Text("DirectX 12").tag(12)
+                                }
+                                Text("DirectX 11 va por DXMT, más probado en Mac. DirectX 12 llega hasta el nivel 12_0, sin trazado de rayos.")
+                                    .font(.caption).foregroundStyle(.secondary)
+                            }
+                            if s.lane == nil || s.lane == "DXMT" {
                             Toggle("MetalFX (DirectX 10 y 11)", isOn: Binding(get: { s.metalfx }, set: { set("metalfx", $0) }))
-                            if s.metalfx {
+                            }
+                            if s.metalfx && (s.lane == nil || s.lane == "DXMT") {
                                 Picker("Escala", selection: Binding(get: { s.factor }, set: { set("factor", $0) })) {
                                     Text("1,25×").tag(1.25); Text("1,5×").tag(1.5); Text("1,75×").tag(1.75); Text("2×").tag(2.0)
                                 }
@@ -215,6 +246,10 @@ struct GameInspector: View {
                                 Text("Sin límite").tag(0); Text("30").tag(30); Text("40").tag(40); Text("60").tag(60); Text("120").tag(120)
                             }
                             Toggle("HUD de Metal", isOn: Binding(get: { s.hud }, set: { set("hud", $0) }))
+                            if s.lane != nil {
+                                Toggle("OptiScaler: FSR y XeSS → DLSS", isOn: Binding(get: { s.optiscaler ?? false }, set: { set("optiscaler", $0) }))
+                                    .help("Para juegos sin DLSS: OptiScaler toma su FSR 2/3 o XeSS y lo pasa a DLSS, que aquí es MetalFX o FSR 4 si la botella lo tiene. Elige FSR o XeSS en el juego; la tecla Insert abre su menú.")
+                            }
                             if let fix = game.fix {
                                 Divider()
                                 Toggle("Arreglo de la comunidad", isOn: Binding(get: { s.useFixes }, set: { set("useFixes", $0) }))
@@ -269,6 +304,44 @@ struct GameInspector: View {
     }
 }
 
+
+/// How the game runs on Apple Silicon, from highball-db: status, renderer, notes.
+struct CompatBox: View {
+    let compat: CompatInfo
+    @Local private var more = false
+
+    var tint: Color {
+        switch compat.level { case "bad": .red; case "warn": .orange; case "good": .green; default: .blue }
+    }
+    var symbol: String {
+        switch compat.level { case "bad": "nosign"; case "warn": "exclamationmark.shield.fill"; case "good": "checkmark.seal.fill"; default: "person.2.fill" }
+    }
+
+    var body: some View {
+        GroupBox {
+            VStack(alignment: .leading, spacing: 8) {
+                Label(compat.label, systemImage: symbol).font(.callout.weight(.semibold)).foregroundStyle(tint)
+                if let r = compat.renderer { Text(r).font(.caption) }
+                if !compat.notes.isEmpty {
+                    Text(compat.notes).font(.caption).foregroundStyle(.secondary).lineLimit(more ? nil : 3)
+                        .fixedSize(horizontal: false, vertical: true)
+                    if compat.notes.count > 160 {
+                        Button(more ? "Menos" : "Más") { more.toggle() }.buttonStyle(.link).font(.caption)
+                    }
+                }
+                HStack {
+                    Text("Datos de highball-db (CC0)").font(.caption2).foregroundStyle(.tertiary)
+                    Spacer()
+                    if let u = compat.url.flatMap(URL.init(string:)) { Link("Ver en Highball", destination: u).font(.caption) }
+                }
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(6)
+        } label: {
+            Text("En Mac").font(.headline)
+        }
+    }
+}
 
 /// A game at the top of the library, on its own art, in the banner style.
 struct FeaturedBanner: View {

@@ -40,10 +40,24 @@ impl Api {
         match (self, wined3d) {
             (Self::Dx9, false) => "mtld3d → Metal",
             (Self::Dx10 | Self::Dx11, false) => "DXMT → Metal",
-            (Self::Dx12, false) => "vkd3d-proton → Vulkan → Metal",
+            (Self::Dx12, false) => "vkd3d-proton → Vulkan → Metal (hasta nivel 12_0, sin trazado de rayos)",
             (Self::Vulkan, _) => "KosmicKrisp → Metal",
             (Self::OpenGl, _) => "OpenGL de Wine",
             (Self::Dx12, true) => "vkd3d-proton (WineD3D no hace DX12)",
+            _ => "WineD3D",
+        }
+    }
+
+    /// Where this API runs on the D3DMetal engine on `lane`.
+    pub fn path_d3dmetal(self, lane: crate::engine::Graphics) -> &'static str {
+        use crate::engine::Graphics as G;
+        match (self, lane) {
+            (Self::Dx11 | Self::Dx12, G::Auto | G::D3dmetal) => "D3DMetal → Metal",
+            (Self::Dx10, G::Auto | G::D3dmetal) => "WineD3D (D3DMetal no hace DX10)",
+            (Self::Dx10 | Self::Dx11 | Self::Dx12, G::Dxmt) => "DXMT → Metal",
+            (Self::Dx12, G::Wine) => "vkd3d de Wine",
+            (Self::Vulkan, _) => "MoltenVK → Metal",
+            (Self::OpenGl, _) => "OpenGL de Wine → Metal",
             _ => "WineD3D",
         }
     }
@@ -55,17 +69,33 @@ pub struct Analysis {
     pub apis: Vec<Api>,
     pub dotnet: bool,
     pub engine: Option<&'static str>,
+    /// d3d12.dll is in an import table: the game cannot start without it.
+    pub static_dx12: bool,
 }
 
 impl Analysis {
+    /// Has D3D11 and D3D12 and loads D3D12 itself, so it can run on D3D11 when D3D12 is hidden.
+    pub fn dual_dx(&self) -> bool {
+        self.apis.contains(&Api::Dx11) && self.apis.contains(&Api::Dx12) && !self.static_dx12
+    }
+
     /// The newest API found: the one the game most likely renders with.
     pub fn main_api(&self) -> Option<Api> {
         self.apis.iter().copied().max()
     }
 
     pub fn summary(&self, wined3d: bool) -> String {
+        self.summary_with(|a| a.path(wined3d))
+    }
+
+    /// [`Analysis::summary`] for the D3DMetal engine on `lane`.
+    pub fn summary_d3dmetal(&self, lane: crate::engine::Graphics) -> String {
+        self.summary_with(|a| a.path_d3dmetal(lane))
+    }
+
+    fn summary_with(&self, path: impl Fn(Api) -> &'static str) -> String {
         let mut s = match self.main_api() {
-            Some(a) => format!("{} → {}", a.label(), a.path(wined3d)),
+            Some(a) => format!("{} → {}", a.label(), path(a)),
             None => "API no detectada → reglas del motor".to_owned(),
         };
         s.push_str(&format!(" · {} bits", self.bits));
@@ -97,7 +127,7 @@ fn contains_ci(hay: &[u8], needle: &[u8]) -> bool {
 
 /// APIs of one PE file: its import table, then the DLL names in its data, which
 /// catches engines that load Direct3D with LoadLibrary.
-fn scan_pe(data: &[u8], apis: &mut Vec<Api>, dotnet: &mut bool) -> Option<u8> {
+fn scan_pe(data: &[u8], apis: &mut Vec<Api>, dotnet: &mut bool, static_dx12: &mut bool) -> Option<u8> {
     let file = object::File::parse(data).ok()?;
     if !matches!(file.kind(), ObjectKind::Executable | ObjectKind::Dynamic) {
         return None;
@@ -108,6 +138,9 @@ fn scan_pe(data: &[u8], apis: &mut Vec<Api>, dotnet: &mut bool) -> Option<u8> {
             let lib = String::from_utf8_lossy(i.library()).to_lowercase();
             if lib == "mscoree.dll" {
                 *dotnet = true;
+            }
+            if lib == "d3d12.dll" {
+                *static_dx12 = true;
             }
             if let Some((_, api)) = DLLS.iter().find(|(d, _)| *d == lib) {
                 apis.push(*api);
@@ -120,6 +153,9 @@ fn scan_pe(data: &[u8], apis: &mut Vec<Api>, dotnet: &mut bool) -> Option<u8> {
                 apis.push(*api);
             }
         }
+    } else if apis.contains(&Api::Dx11) && !apis.contains(&Api::Dx12) && contains_ci(data, b"d3d12.dll") {
+        // D3D11 imported, D3D12 loaded by the game itself when it can.
+        apis.push(Api::Dx12);
     }
     Some(bits)
 }
@@ -127,7 +163,7 @@ fn scan_pe(data: &[u8], apis: &mut Vec<Api>, dotnet: &mut bool) -> Option<u8> {
 pub fn analyze(exe: &Path) -> Option<Analysis> {
     let data = fs::read(exe).ok()?;
     let mut a = Analysis::default();
-    a.bits = scan_pe(&data, &mut a.apis, &mut a.dotnet)?;
+    a.bits = scan_pe(&data, &mut a.apis, &mut a.dotnet, &mut a.static_dx12)?;
     let dir = exe.parent().unwrap_or(Path::new("."));
     // Unity and Unreal keep the renderer outside the .exe.
     let unity = dir.join("UnityPlayer.dll");
@@ -135,7 +171,7 @@ pub fn analyze(exe: &Path) -> Option<Analysis> {
         a.engine = Some("Unity");
         if let Ok(d) = fs::read(&unity) {
             let mut extra = vec![];
-            scan_pe(&d, &mut extra, &mut a.dotnet);
+            scan_pe(&d, &mut extra, &mut a.dotnet, &mut a.static_dx12);
             a.apis.extend(extra);
         }
     } else if dir.ancestors().take(5).any(|p| p.join("Engine/Binaries").exists()) {

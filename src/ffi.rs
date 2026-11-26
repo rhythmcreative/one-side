@@ -11,7 +11,7 @@ use serde_json::{Value, json};
 
 use crate::art::{self, Art};
 use crate::catalog::{self, LutrisGame, Offer, WtApp};
-use crate::engine::{self, Backend, Bottle, CustomGame, WINDOWS_VERSIONS};
+use crate::engine::{self, Backend, Bottle, CustomGame, Engine, Graphics, WINDOWS_VERSIONS};
 use crate::fixes::FixDb;
 use crate::install::{self, Handle, State};
 use crate::library::{self, Game, Launch, Program};
@@ -80,7 +80,7 @@ static CORE: LazyLock<Mutex<Core>> = LazyLock::new(|| {
         lutris: Arc::default(),
     };
     c.reload();
-    if c.fixes.count() == 0 {
+    if c.fixes.count() == 0 || c.fixes.compat.is_empty() {
         install::spawn_update_fixes(c.shared.clone());
     }
     let h = c.shared.clone();
@@ -95,15 +95,28 @@ fn path_str(p: Option<PathBuf>) -> Value {
     p.map_or(Value::Null, |p| Value::String(p.to_string_lossy().into_owned()))
 }
 
-/// The game's art: its store's, or Steam's found by its name.
+/// The game's art: its store's, with any missing or broken picture filled in
+/// from Steam's official art found by the game's name, so every game gets a cover.
 fn art_of(g: &Game) -> Art {
     if g.key.starts_with("launcher-") {
         return Art::default();
     }
-    if !g.art.is_empty() {
-        return g.art.clone();
+    let mut a = g.art.clone();
+    let broken = |u: &Option<String>| u.as_deref().is_none_or(art::failed);
+    if g.source != "Steam" && (broken(&a.cover) || broken(&a.hero) || broken(&a.logo)) {
+        if let Some(s) = art::steam_id_for(&g.name).map(|id| art::steam_art(&id)) {
+            if broken(&a.cover) {
+                a.cover = s.cover;
+            }
+            if broken(&a.hero) {
+                a.hero = s.hero;
+            }
+            if broken(&a.logo) {
+                a.logo = s.logo;
+            }
+        }
     }
-    art::steam_id_for(&g.name).map(|id| art::steam_art(&id)).unwrap_or_default()
+    a
 }
 
 fn is_game(g: &Game) -> bool {
@@ -175,8 +188,19 @@ fn state_json(c: &Core) -> Value {
             let a = art_of(g);
             let b = c.bottle(&g.bottle);
             let s = b.map(|b| b.config.game(&g.key)).unwrap_or_default();
-            let wined3d = s.backend == Backend::Wined3d || (s.backend == Backend::Auto && s.fallback);
-            let analysis = if g.installed { g.exe.as_deref().and_then(crate::auto::analyze_cached).map(|x| x.summary(wined3d)) } else { None };
+            let wined3d = s.backend == Backend::Wined3d || (s.backend == Backend::Auto && (s.fallback || b.is_some_and(|b| b.compat_wined3d(g, &c.fixes))));
+            let d3dm = b.is_some_and(|b| b.config.engine == Engine::D3dmetal);
+            let compat = c.fixes.compat(g.store, &g.store_id, &g.name).map(|x| json!({
+                "level": x.level(), "label": x.label(), "notes": x.notes, "anticheat": x.anticheat,
+                "renderer": if d3dm { x.renderer_note_d3dmetal() } else { x.renderer_note() }, "url": x.url,
+            }));
+            let found = if g.installed { g.exe.as_deref().and_then(crate::auto::analyze_cached) } else { None };
+            let hide12 = b.is_some_and(|b| b.hide_d3d12(g, &c.fixes));
+            let lane = b.filter(|_| d3dm).map(|b| b.graphics(Some((g, &c.fixes))));
+            let analysis = found.as_ref().map(|x| {
+                let s = match lane { Some(l) => x.summary_d3dmetal(l), None => x.summary(wined3d) };
+                if hide12 && lane.is_none_or(|l| l == Graphics::Dxmt) { format!("{s} · usa DX11 en DXMT") } else { s }
+            });
             json!({
                 "key": g.key, "name": g.name, "source": g.source, "bottle": g.bottle,
                 "bottleName": names.get(g.bottle.as_str()).copied().unwrap_or(""),
@@ -188,7 +212,13 @@ fn state_json(c: &Core) -> Value {
                 "icon": path_str(g.exe.as_deref().and_then(art::exe_icon)),
                 "folder": g.exe.as_deref().and_then(Path::parent).map(|p| p.to_string_lossy().into_owned()),
                 "settings": { "backend": backend_name(s.backend), "fallback": s.fallback, "metalfx": s.metalfx,
-                              "factor": s.metalfx_factor, "fps": s.fps_limit, "hud": s.metal_hud, "useFixes": s.use_fixes },
+                              "factor": s.metalfx_factor, "fps": s.fps_limit, "hud": s.metal_hud, "useFixes": s.use_fixes,
+                              "directx": s.directx, "graphics": s.graphics.name(),
+                              "autoGraphics": s.auto_graphics.map(|x| x.name()),
+                              "optiscaler": s.optiscaler,
+                              "lane": lane.map(|l| crate::install::graphics_label(l)) },
+                "dualDx": found.as_ref().is_some_and(|x| x.dual_dx()),
+                "autoDx11": b.is_some_and(|b| b.auto_dx11(g, &c.fixes)),
                 "fix": c.fixes.find(g.store, &g.store_id).map(|f| f.describe()),
                 "fixTerms": c.fixes.find(g.store, &g.store_id).filter(|_| s.use_fixes).map(|f| {
                     let done = b.map(|b| b.config.verbs_done.clone()).unwrap_or_default();
@@ -196,6 +226,7 @@ fn state_json(c: &Core) -> Value {
                     crate::legal::missing_for_verbs(&missing)
                 }).unwrap_or_default(),
                 "analysis": analysis,
+                "compat": compat,
                 "task": tasks.get(&g.key),
             })
         })
@@ -220,7 +251,10 @@ fn state_json(c: &Core) -> Value {
                 "windows": b.config.windows,
                 "windowsName": WINDOWS_VERSIONS.iter().find(|(k, _)| *k == b.config.windows).map_or("Windows", |(_, n)| n),
                 "backend": backend_name(b.config.backend), "msync": b.config.msync, "retina": b.config.retina,
+                "engine": match b.config.engine { Engine::Mach9 => "mach9", Engine::D3dmetal => "d3dmetal" },
                 "hud": b.config.metal_hud, "debug": b.config.debug, "verbsDone": b.config.verbs_done,
+                "graphics": b.config.graphics.name(), "avx": b.config.avx, "dlss": b.config.dlss,
+                "fsr4": b.config.fsr4, "fsr4Panel": b.config.fsr4_panel, "fsr4Ready": crate::fsr4::installed(),
                 "programs": progs, "task": tasks.get(&b.id),
                 "driveC": b.drive_c(), "log": b.log(),
             })
@@ -290,9 +324,9 @@ fn state_json(c: &Core) -> Value {
     };
     json!({
         "games": games, "bottles": bottles, "stores": stores, "apps": apps, "lutris": lutris,
-        "tasks": tasks, "message": msg,
+        "tasks": tasks, "message": msg, "shadersPending": crate::engine::shaders_pending(),
         "engine": { "version": engine::engine_version(), "installed": engine::engine_installed() },
-        "fixes": { "games": c.fixes.count(), "names": c.fixes.umu.len() },
+        "fixes": { "games": c.fixes.count(), "names": c.fixes.umu.len(), "compat": c.fixes.compat_count() },
         "consents": crate::legal::all(),
         "steamBottle": c.bottles.iter().find(|b| b.config.store.as_deref() == Some("steam") && b.launcher_installed()).map(|b| b.id.clone()),
     })
@@ -367,6 +401,20 @@ fn command(c: &mut Core, v: &Value) -> Result<Value, String> {
                 "hud" => gs.metal_hud = val.as_bool().unwrap_or(false),
                 "useFixes" => gs.use_fixes = val.as_bool().unwrap_or(true),
                 "retryMetal" => gs.fallback = false,
+                "directx" => gs.directx = match val.as_u64() { Some(11) => 11, Some(12) => 12, _ => 0 },
+                "graphics" => {
+                    gs.graphics = Graphics::of(val.as_str().unwrap_or("auto"));
+                    gs.auto_graphics = None;
+                }
+                "optiscaler" => {
+                    gs.optiscaler = val.as_bool().unwrap_or(false);
+                    if gs.optiscaler && !crate::optiscaler::installed() {
+                        install::spawn_job(b.id.clone(), "Instalando OptiScaler…".into(), h.clone(), move |report| {
+                            let tag = crate::optiscaler::install(report)?;
+                            Ok(Some(format!("OptiScaler {tag} listo. Elige FSR o XeSS en el juego.")))
+                        });
+                    }
+                }
                 f => return Err(format!("ajuste desconocido: {f}")),
             }
             b.config.game_settings.insert(g.key.clone(), gs);
@@ -376,6 +424,8 @@ fn command(c: &mut Core, v: &Value) -> Result<Value, String> {
             let mut b = c.bottle(s(v, "id")).cloned().ok_or("la botella ya no existe")?;
             let val = &v["value"];
             let mut apply = false;
+            let mut fetch = false;
+            let mut fetch_fsr4 = false;
             match s(v, "field") {
                 "windows" => {
                     b.config.windows = val.as_str().unwrap_or("win10").to_owned();
@@ -389,9 +439,42 @@ fn command(c: &mut Core, v: &Value) -> Result<Value, String> {
                 }
                 "hud" => b.config.metal_hud = val.as_bool().unwrap_or(false),
                 "debug" => b.config.debug = val.as_bool().unwrap_or(false),
+                "graphics" => b.config.graphics = Graphics::of(val.as_str().unwrap_or("auto")),
+                "avx" => b.config.avx = val.as_bool().unwrap_or(true),
+                "dlss" => {
+                    b.config.dlss = val.as_bool().unwrap_or(false);
+                    b.config.fsr4 &= b.config.dlss;
+                }
+                "fsr4" => {
+                    b.config.fsr4 = val.as_bool().unwrap_or(false);
+                    b.config.dlss |= b.config.fsr4;
+                    fetch_fsr4 = b.config.fsr4 && !crate::fsr4::installed();
+                }
+                "fsr4_panel" => b.config.fsr4_panel = val.as_bool().unwrap_or(false),
+                "engine" => {
+                    let want = if val.as_str() == Some("d3dmetal") { Engine::D3dmetal } else { Engine::Mach9 };
+                    if want != b.config.engine {
+                        // The old engine's processes go; the new one updates the prefix itself.
+                        b.kill_all();
+                        b.config.engine = want;
+                        fetch = want == Engine::D3dmetal && !engine::d3dmetal_installed();
+                    }
+                }
                 f => return Err(format!("ajuste desconocido: {f}")),
             }
             c.save_bottle(b.clone());
+            if fetch {
+                install::spawn_job(b.id.clone(), "Bajando D3DMetal…".into(), h.clone(), move |report| {
+                    let tag = engine::install_d3dmetal(|p| report(format!("Bajando D3DMetal {:.0} %", p * 100.0)))?;
+                    Ok(Some(format!("D3DMetal {tag} listo.")))
+                });
+            }
+            if fetch_fsr4 {
+                install::spawn_job(b.id.clone(), "Instalando FSR 4…".into(), h.clone(), move |report| {
+                    let tag = crate::fsr4::install(report)?;
+                    Ok(Some(format!("FSR 4 ({tag}) listo. Activa DLSS en el juego.")))
+                });
+            }
             if apply {
                 install::spawn_job(b.id.clone(), "Aplicando…".into(), h, move |_| {
                     b.set_windows_version().map_err(|e| e.to_string())?;
@@ -716,6 +799,14 @@ mod tests {
         // Removing it is saved too.
         c.reload();
         let tool_key = c.games.iter().find(|g| g.name == "Tool").unwrap().key.clone();
+        // "Use DirectX 11" hides vkd3d-proton from that game only, in the rules the engine reads.
+        run(&mut c, json!({ "cmd": "game_set", "key": tool_key, "field": "directx", "value": 11 }));
+        c.reload();
+        let b = Bottle::load("steam").unwrap();
+        assert_eq!(b.config.game(&tool_key).directx, 11);
+        b.write_rules(&c.games, &c.fixes);
+        let rules = std::fs::read_to_string(b.rules_file()).unwrap();
+        assert!(rules.lines().any(|l| l.contains("tool.exe") && l.contains("d3d12=") && l.contains("d3d12core=")), "{rules}");
         run(&mut c, json!({ "cmd": "remove_game", "key": tool_key }));
         assert!(Bottle::load("steam").unwrap().config.games.is_empty());
 

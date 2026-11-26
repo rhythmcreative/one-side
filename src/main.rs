@@ -163,7 +163,7 @@ fn cli() -> Option<i32> {
         }
         Some("--update-fixes") => match fixes::update() {
             Ok(db) => {
-                println!("OK {} arreglos, {} nombres de tienda", db.count(), db.umu.len());
+                println!("OK {} arreglos, {} nombres de tienda, {} juegos en highball-db", db.count(), db.umu.len(), db.compat_count());
                 Some(0)
             }
             Err(e) => {
@@ -184,6 +184,14 @@ fn cli() -> Option<i32> {
             match db.find(a.get(2)?, a.get(3)?) {
                 Some(f) => println!("{} | {}", f.title, f.describe()),
                 None => println!("sin arreglo"),
+            }
+            Some(0)
+        }
+        Some("--compat") => {
+            let db = FixDb::load();
+            match db.compat(a.get(2)?, a.get(3).map_or("", |s| s.as_str()), a.get(4).map_or("", |s| s.as_str())) {
+                Some(c) => println!("{} | {} | {} | {}", c.title, c.label(), c.renderer_note().unwrap_or_default(), c.notes),
+                None => println!("sin datos"),
             }
             Some(0)
         }

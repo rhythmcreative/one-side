@@ -38,7 +38,15 @@ Every install gets its own **bottle** (a separate Windows) and shows up in your 
 
 [![Typing SVG](https://readme-typing-svg.herokuapp.com?font=Fira+Code&pause=1000&color=F7F7F7&vCenter=true&multiline=true&width=435&height=35&lines=METAL+GRAPHICS)](https://git.io/typing-svg)
 
-Games run on [Mach9](https://github.com/athei/mach9): native ARM64 Wine, FEX for x86 code, DXMT for DirectX 10/11, mtld3d for DirectX 9 and vkd3d-proton with KosmicKrisp for DirectX 12 and Vulkan, all on Metal. One-Side downloads it from its authors the first time. Each game can use **Auto**, **Metal** or **WineD3D**. Auto picks the right layer for the game and falls back to WineD3D by itself if the game closes on Metal.
+Games run on [Mach9](https://github.com/athei/mach9): native ARM64 Wine, FEX for x86 code, DXMT for DirectX 10/11, mtld3d for DirectX 9 and vkd3d-proton with KosmicKrisp for DirectX 12 and Vulkan, all on Metal. One-Side downloads it from its authors the first time. Each game can use **Auto**, **Metal** or **WineD3D**. Auto picks the right layer for the game and falls back to WineD3D by itself if the game closes on Metal. Games that ship both DirectX 11 and 12 can be told to use DirectX 11 on DXMT, and Auto does it for the ones known to work that way. DirectX 12 reaches feature level 12_0 without ray tracing or mesh shaders, so games that need DirectX 12 Ultimate do not start yet. Each game also shows how it runs on Apple silicon, and games whose kernel anti-cheat cannot work in Wine are flagged before you download or start them, using the open [highball-db](https://github.com/gauthierpiarrette/highball-db) (CC0).
+
+[![Typing SVG](https://readme-typing-svg.herokuapp.com?font=Fira+Code&pause=1000&color=F7F7F7&vCenter=true&multiline=true&width=435&height=35&lines=D3DMETAL%2C+DLSS+%26+FSR+4)](https://git.io/typing-svg)
+
+A bottle can also run on Apple's **D3DMetal** (from the Game Porting Toolkit, through [MetalSharp Wine](https://github.com/metalsharp/MetalSharp-Wine) under Rosetta), like CrossOver. Each game or bottle picks **Auto**, **D3DMetal**, **DXMT** or **WineD3D**, and Auto tries the next one by itself if a game closes at start. CrossOver's defaults come along: AVX under Rosetta, MSync, .NET games without W^X, and high resolution at 192 dpi.
+
+- **DLSS** runs on MetalFX.
+- **FSR 4 instead of MetalFX:** DLSS games are upscaled with AMD FSR 4.1.2, through [fsr4-native-macos](https://github.com/UzenUPoZiTiV4ik/fsr4-native-macos). One-Side downloads it and builds it on your Mac with the Command Line Tools only, no Xcode needed.
+- **OptiScaler** (per game): for games that only have FSR 2/3 or XeSS, [OptiScaler](https://github.com/optiscaler/OptiScaler) hands them to DLSS, so they get MetalFX or FSR 4 too. Turning it off removes exactly the files it added.
 
 [![Typing SVG](https://readme-typing-svg.herokuapp.com?font=Fira+Code&pause=1000&color=F7F7F7&vCenter=true&multiline=true&width=435&height=35&lines=YOU+ACCEPT+EVERY+LICENCE)](https://git.io/typing-svg)
 
@@ -53,7 +61,7 @@ One-Side never accepts a licence for you. Before anything is installed without i
 
 [![Typing SVG](https://readme-typing-svg.herokuapp.com?font=Fira+Code&pause=1000&color=F7F7F7&vCenter=true&multiline=true&width=435&height=35&lines=INSTALL)](https://git.io/typing-svg)
 
-1. Download **`One-Side-macOS-arm64.dmg`** from the [latest release](https://github.com/rhythmcreative/one-side/releases/latest).
+1. Download **`One-Side-macOS-arm64.dmg`** from the newest [release](https://github.com/rhythmcreative/one-side/releases) (One-Side is in beta, so releases are marked as pre-releases).
 2. Open it and drag **One-Side** to **Applications**.
 3. Open One-Side from Launchpad or Spotlight. The first time, it downloads the Mach9 engine.
 
@@ -93,7 +101,7 @@ Like the app, the command line never accepts a licence for you: without `--acept
 
 - One-Side is free software under the [MIT licence](LICENSE). Contributions are accepted under the same licence.
 - Third-party software and its licences: [legal/THIRD_PARTY_NOTICES.txt](legal/THIRD_PARTY_NOTICES.txt). Privacy (no accounts, no servers, no analytics): [legal/PRIVACY.md](legal/PRIVACY.md). Full legal notes: [legal/LEGAL.md](legal/LEGAL.md).
-- One-Side is an independent project. It is not affiliated with or endorsed by Valve, Epic Games, GOG, Electronic Arts, Ubisoft, Blizzard, Rockstar Games, Amazon, itch.io, Lutris, Microsoft, Apple or CodeWeavers. Their names and logos are trademarks of their owners and are only used to say what One-Side works with. Store logos come from [Simple Icons](https://simpleicons.org) (CC0).
+- One-Side is an independent project. It is not affiliated with or endorsed by Valve, Epic Games, GOG, Electronic Arts, Ubisoft, Blizzard, Rockstar Games, Amazon, itch.io, Lutris, Highball, Microsoft, Apple or CodeWeavers. Their names and logos are trademarks of their owners and are only used to say what One-Side works with. Store logos come from [Simple Icons](https://simpleicons.org) (CC0).
 - Game art is fetched from Steam on each Mac and is not part of this repository.
 - Provided as is, without warranty. Use every store and game according to its own terms.
 

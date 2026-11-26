@@ -1,0 +1,23 @@
+MetalSharp Wine — https://github.com/metalsharp/MetalSharp-Wine
+
+One-Side downloads MetalSharp Wine's x86_64 build (MetalSharp-Wine-x86_64.app) from that
+project's GitHub releases the first time a Steam bottle is made, or when you pick the
+D3DMetal engine for a bottle. It checks the download against the release's SHA256SUMS and
+the app's Developer ID signature, and runs it unmodified. One-Side does not include or
+change any of its code.
+
+MetalSharp Wine is licensed under the GNU Affero General Public License v3.0 or later
+(AGPL-3.0-or-later); its complete source code is at the address above. It is built on
+Wine (LGPL-2.1-or-later) and WineForge. Its other components keep their own licenses,
+listed inside the app in Contents/share/licenses.
+
+Apple D3DMetal (Game Porting Toolkit)
+MetalSharp Wine carries Apple's D3DMetal from the Game Porting Toolkit, unmodified and
+signed by Apple, under Apple's own license: Contents/share/licenses/d3dmetal/License.rtf
+inside the app. One-Side does not distribute it. D3DMetal is Apple's; One-Side is not
+affiliated with Apple or with MetalSharp.
+
+Per-game fixes
+The Resonance: A Plague Tale Legacy fixes (the Shader Model 6.7 comparison and HDR10 off)
+follow what MacGameFix (github.com/MathiasKowoll/MacGameFix) documented; One-Side's code
+for them is its own.

@@ -11,6 +11,7 @@ use std::sync::LazyLock;
 use regex::Regex;
 use serde::{Deserialize, Serialize};
 
+use crate::compat::{self, Compat};
 use crate::engine;
 
 const TARBALL: &str = "https://codeload.github.com/Open-Wine-Components/umu-protonfixes/tar.gz/HEAD";
@@ -54,6 +55,9 @@ pub struct FixDb {
     /// "<store>/<codename>" from umu-database, e.g. "egs/Catnip" → "umu-397540".
     pub umu: HashMap<String, String>,
     pub updated: String,
+    /// highball-db: how each game runs on Apple Silicon ("steam/<id>", "title/<name>").
+    #[serde(default)]
+    pub compat: HashMap<String, Compat>,
 }
 
 fn db_path() -> PathBuf {
@@ -67,6 +71,15 @@ impl FixDb {
 
     pub fn count(&self) -> usize {
         self.fixes.len()
+    }
+
+    /// Games highball-db knows (each is stored under its app id and its title).
+    pub fn compat_count(&self) -> usize {
+        self.compat.keys().filter(|k| k.starts_with("title/")).count()
+    }
+
+    pub fn compat(&self, store: &str, id: &str, name: &str) -> Option<&Compat> {
+        compat::find(&self.compat, store, id, name)
     }
 
     fn umu_fix(&self, umu: &str) -> Option<&Fix> {
@@ -179,10 +192,28 @@ pub fn update() -> Result<FixDb, String> {
             }
         }
     }
+    // highball-db is a second source: if it cannot be reached, keep the copy we have.
+    db.compat = match fetch_compat() {
+        Ok(m) => m,
+        Err(_) => FixDb::load().compat,
+    };
     db.updated = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .map(|d| d.as_secs().to_string())
         .unwrap_or_default();
-    fs::write(db_path(), serde_json::to_vec(&db).map_err(|e| e.to_string())?).map_err(|e| e.to_string())?;
+    let tmp = db_path().with_extension("json.tmp");
+    fs::write(&tmp, serde_json::to_vec(&db).map_err(|e| e.to_string())?).map_err(|e| e.to_string())?;
+    fs::rename(&tmp, db_path()).map_err(|e| e.to_string())?;
     Ok(db)
+}
+
+fn get_json(url: &str) -> Result<serde_json::Value, String> {
+    let mut body = crate::http_get(url).call().map_err(|e| format!("No se pudo bajar {url}: {e}"))?.into_body();
+    let text = body.with_config().limit(50 << 20).read_to_string().map_err(|e| e.to_string())?;
+    serde_json::from_str(&text).map_err(|e| e.to_string())
+}
+
+fn fetch_compat() -> Result<HashMap<String, Compat>, String> {
+    let m = compat::parse(&get_json(compat::GAMES)?, &get_json(compat::ANTICHEAT)?);
+    if m.is_empty() { Err("highball-db vacía".into()) } else { Ok(m) }
 }

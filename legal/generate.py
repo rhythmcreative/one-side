@@ -26,10 +26,18 @@ RUNTIME = [
     ("vkd3d-proton", "https://github.com/HansKristian-Work/vkd3d-proton", "LGPL-2.1-or-later", "vkd3d-proton.txt", "Forma parte de Mach9."),
     ("FEX", "https://github.com/FEX-Emu/FEX", "MIT", "fex.txt", "Forma parte de Mach9."),
     ("Mesa / KosmicKrisp", "https://gitlab.freedesktop.org/mesa/mesa", "MIT", "mesa.txt", "Forma parte de Mach9."),
+    ("MetalSharp Wine (motor D3DMetal)", "https://github.com/metalsharp/MetalSharp-Wine", "AGPL-3.0-or-later", "metalsharp-wine.txt",
+     "Se descarga de GitHub al crear la botella de Steam o al elegir el motor D3DMetal. Lleva D3DMetal de Apple sin cambios, con su propia licencia de Apple."),
+    ("fsr4-native-macos (FSR 4 en lugar de MetalFX)", "https://github.com/UzenUPoZiTiV4ik/fsr4-native-macos", "MIT; modelo FSR 4 de AMD con su licencia", "fsr4-native-macos.txt",
+     "Se descarga de GitHub y se compila en tu Mac al activar FSR 4 en una botella D3DMetal."),
+    ("OptiScaler", "https://github.com/optiscaler/OptiScaler", "GPL-3.0", "optiscaler.txt",
+     "Se descarga de GitHub al activarlo en un juego y se copia sin cambios en su carpeta."),
     ("winetricks", "https://github.com/Winetricks/winetricks", "LGPL-2.1-or-later", "winetricks.txt",
      "Se descarga al instalar una aplicación o dependencia del catálogo."),
     ("umu-protonfixes", "https://github.com/Open-Wine-Components/umu-protonfixes", "BSD-2-Clause", "umu-protonfixes.txt",
      "Base de arreglos por juego; se descarga y se actualiza aparte."),
+    ("highball-db (compatibilidad en Mac)", "https://github.com/gauthierpiarrette/highball-db", "CC0-1.0; antitrampas MIT (Are We Anti-Cheat Yet?)", "highball-db.txt",
+     "Datos de cómo va cada juego en Apple Silicon. Se descarga y se actualiza con los arreglos; no se usan sus predicciones (ODbL)."),
     ("Simple Icons", "https://github.com/simple-icons/simple-icons", "CC0-1.0", "simple-icons.txt",
      "Dibujos de los logotipos de las tiendas. Las marcas son de sus dueños."),
 ]
@@ -127,7 +135,8 @@ def main():
         w(f"    {note}")
     w("")
     w("Servicios que One-Side consulta: Steam (búsqueda e imágenes), Lutris (instaladores de la")
-    w("comunidad, https://lutris.net), GitHub (motor y winetricks), Simple Icons (logotipos) y, si")
+    w("comunidad, https://lutris.net), GitHub (motores y winetricks), Highball (gethighball.com,")
+    w("compatibilidad en Mac), Simple Icons (logotipos) y, si")
     w("inicias sesión, Epic Games y GOG. One-Side no está afiliado a ninguno de ellos.")
     w("")
     w("3. TEXTOS DE LICENCIA")

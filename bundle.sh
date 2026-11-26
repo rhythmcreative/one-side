@@ -17,6 +17,9 @@ rm -rf "$APP" dist/icon.iconset
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources" dist/icon.iconset
 cp target/swift/OneSide "$APP/Contents/MacOS/OneSide"
 cp target/release/one-side "$APP/Contents/MacOS/one-side"
+# Vulkan driver shim: lets Metal compile KosmicKrisp's deeply nested shaders (vkshim/onesidekk.m).
+clang -O2 -dynamiclib -fobjc-arc -arch arm64 -mmacosx-version-min=14.0 -framework Foundation -framework Metal \
+    -o "$APP/Contents/Resources/libonesidekk.dylib" vkshim/onesidekk.m
 cp LICENSE legal/THIRD_PARTY_NOTICES.txt legal/PRIVACY.md legal/LEGAL.md "$APP/Contents/Resources/"
 for s in 16 32 128 256 512; do
   target/release/one-side --make-icon dist/icon.iconset/icon_${s}x${s}.png $s

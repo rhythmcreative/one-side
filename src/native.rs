@@ -197,8 +197,8 @@ impl Native {
     pub fn launch_command(&self, k: Kind, app: &str, b: &Bottle) -> Result<(PathBuf, Vec<String>, Option<PathBuf>, Vec<(String, String)>), String> {
         let mut env = LaunchEnvironment::default();
         env.wine = Some(WineLaunch {
-            bin: engine::wine_bin(),
-            build_bin: engine::wine_bin(),
+            bin: b.wine(),
+            build_bin: b.wine(),
             kind: WineKind::Wine,
             prefix: b.prefix(),
             uses_umu: false,

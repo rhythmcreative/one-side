@@ -55,8 +55,8 @@ pub fn winetricks(b: &Bottle, verbs: &[String]) -> Result<(), String> {
     let mut c = Command::new("/bin/bash");
     c.arg(dir().join("winetricks")).arg("-q").args(verbs);
     b.apply_env(&mut c);
-    c.env("WINE", engine::wine_bin())
-        .env("WINESERVER", engine::wineserver_bin())
+    c.env("WINE", b.wine())
+        .env("WINESERVER", b.wineserver())
         .env("PATH", path)
         .env("W_OPT_UNATTENDED", "1")
         .env("WINETRICKS_LATEST_VERSION_CHECK", "disabled")

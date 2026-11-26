@@ -421,15 +421,24 @@ FEX  —  MIT  —  https://github.com/FEX-Emu/FEX
     Forma parte de Mach9.
 Mesa / KosmicKrisp  —  MIT  —  https://gitlab.freedesktop.org/mesa/mesa
     Forma parte de Mach9.
+MetalSharp Wine (motor D3DMetal)  —  AGPL-3.0-or-later  —  https://github.com/metalsharp/MetalSharp-Wine
+    Se descarga de GitHub al crear la botella de Steam o al elegir el motor D3DMetal. Lleva D3DMetal de Apple sin cambios, con su propia licencia de Apple.
+fsr4-native-macos (FSR 4 en lugar de MetalFX)  —  MIT; modelo FSR 4 de AMD con su licencia  —  https://github.com/UzenUPoZiTiV4ik/fsr4-native-macos
+    Se descarga de GitHub y se compila en tu Mac al activar FSR 4 en una botella D3DMetal.
+OptiScaler  —  GPL-3.0  —  https://github.com/optiscaler/OptiScaler
+    Se descarga de GitHub al activarlo en un juego y se copia sin cambios en su carpeta.
 winetricks  —  LGPL-2.1-or-later  —  https://github.com/Winetricks/winetricks
     Se descarga al instalar una aplicación o dependencia del catálogo.
 umu-protonfixes  —  BSD-2-Clause  —  https://github.com/Open-Wine-Components/umu-protonfixes
     Base de arreglos por juego; se descarga y se actualiza aparte.
+highball-db (compatibilidad en Mac)  —  CC0-1.0; antitrampas MIT (Are We Anti-Cheat Yet?)  —  https://github.com/gauthierpiarrette/highball-db
+    Datos de cómo va cada juego en Apple Silicon. Se descarga y se actualiza con los arreglos; no se usan sus predicciones (ODbL).
 Simple Icons  —  CC0-1.0  —  https://github.com/simple-icons/simple-icons
     Dibujos de los logotipos de las tiendas. Las marcas son de sus dueños.
 
 Servicios que One-Side consulta: Steam (búsqueda e imágenes), Lutris (instaladores de la
-comunidad, https://lutris.net), GitHub (motor y winetricks), Simple Icons (logotipos) y, si
+comunidad, https://lutris.net), GitHub (motores y winetricks), Highball (gethighball.com,
+compatibilidad en Mac), Simple Icons (logotipos) y, si
 inicias sesión, Epic Games y GOG. One-Side no está afiliado a ninguno de ellos.
 
 3. TEXTOS DE LICENCIA
@@ -15310,6 +15319,64 @@ Mesa Component Licenses
 
 In general, consult each source file SPDX identifier for license terms.
 
+[MetalSharp Wine (motor D3DMetal)] https://github.com/metalsharp/MetalSharp-Wine
+
+MetalSharp Wine — https://github.com/metalsharp/MetalSharp-Wine
+
+One-Side downloads MetalSharp Wine's x86_64 build (MetalSharp-Wine-x86_64.app) from that
+project's GitHub releases the first time a Steam bottle is made, or when you pick the
+D3DMetal engine for a bottle. It checks the download against the release's SHA256SUMS and
+the app's Developer ID signature, and runs it unmodified. One-Side does not include or
+change any of its code.
+
+MetalSharp Wine is licensed under the GNU Affero General Public License v3.0 or later
+(AGPL-3.0-or-later); its complete source code is at the address above. It is built on
+Wine (LGPL-2.1-or-later) and WineForge. Its other components keep their own licenses,
+listed inside the app in Contents/share/licenses.
+
+Apple D3DMetal (Game Porting Toolkit)
+MetalSharp Wine carries Apple's D3DMetal from the Game Porting Toolkit, unmodified and
+signed by Apple, under Apple's own license: Contents/share/licenses/d3dmetal/License.rtf
+inside the app. One-Side does not distribute it. D3DMetal is Apple's; One-Side is not
+affiliated with Apple or with MetalSharp.
+
+Per-game fixes
+The Resonance: A Plague Tale Legacy fixes (the Shader Model 6.7 comparison and HDR10 off)
+follow what MacGameFix (github.com/MathiasKowoll/MacGameFix) documented; One-Side's code
+for them is its own.
+
+[fsr4-native-macos (FSR 4 en lugar de MetalFX)] https://github.com/UzenUPoZiTiV4ik/fsr4-native-macos
+
+fsr4-native-macos — https://github.com/UzenUPoZiTiV4ik/fsr4-native-macos
+
+When you turn on "FSR 4 en lugar de MetalFX" in a D3DMetal bottle, One-Side downloads that
+project's release package from its GitHub releases, checks it against the release's
+SHA256SUMS, and builds it on your Mac with Apple's Command Line Tools. Before building,
+One-Side changes how the project loads its Metal shaders so that macOS's built-in Metal
+compiler is used instead of Xcode's (One-Side's own files in its fsr4/ folder). One-Side
+does not include or distribute the project.
+
+fsr4-native-macos is licensed under the MIT License. Its FSR 4 model data comes from AMD's
+FidelityFX SDK under AMD's license terms, which the project keeps in its third_party/
+folder with the provenance of each file. AMD and FidelityFX are trademarks of Advanced
+Micro Devices, Inc. One-Side is not affiliated with AMD or with that project.
+
+[OptiScaler] https://github.com/optiscaler/OptiScaler
+
+OptiScaler — https://github.com/optiscaler/OptiScaler
+
+When you turn on OptiScaler for a game, One-Side downloads OptiScaler's release package
+from its GitHub releases, checks it against the SHA-256 GitHub publishes for it, and copies
+OptiScaler.dll unmodified into the game's folder under a proxy name (dxgi.dll, winmm.dll or
+version.dll), together with OptiScaler.ini set to use DLSS. One-Side never overwrites a file
+of the game's and removes exactly those files when you turn it off. One-Side does not
+include or distribute OptiScaler.
+
+OptiScaler is licensed under the GNU General Public License v3.0; its complete source code
+is at the address above. Its package carries components of AMD FidelityFX, Intel XeSS and
+Microsoft DirectX under their own licenses, listed in its Licenses folder. One-Side is not
+affiliated with OptiScaler, AMD, Intel, NVIDIA or Microsoft.
+
 [winetricks] https://github.com/Winetricks/winetricks
 
 GNU LESSER GENERAL PUBLIC LICENSE
@@ -15841,6 +15908,42 @@ SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER
 CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY,
 OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+
+[highball-db (compatibilidad en Mac)] https://github.com/gauthierpiarrette/highball-db
+
+highball-db — https://github.com/gauthierpiarrette/highball-db
+
+The curated game data (db/games, served as https://gethighball.com/data/games.json) is
+dedicated to the public domain under CC0-1.0:
+https://creativecommons.org/publicdomain/zero/1.0/
+
+One-Side does not use the ProtonDB-derived predictions (db/derived, ODbL-1.0).
+
+The anti-cheat data in db/anticheat.json derives from Are We Anti-Cheat Yet?
+(github.com/AreWeAntiCheatYet/AreWeAntiCheatYet). Its MIT license and copyright
+notice follow, as required. The macVerdict interpretations are Highball's own.
+
+MIT License
+
+Copyright © 2021 Starz0r, Curve
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
 
 [Simple Icons] https://github.com/simple-icons/simple-icons
 

@@ -92,13 +92,41 @@ struct BottleView: View {
                 Button { tool("console") } label: { Label("Consola", systemImage: "terminal") }
             }
             }
+            SwiftUI.Section {
+                Picker("Motor", selection: Binding(get: { b.engine ?? "mach9" }, set: { set("engine", $0) })) {
+                    Text("D3DMetal (Apple)").tag("d3dmetal"); Text("Mach9").tag("mach9")
+                }
+            } header: {
+                Text("Motor")
+            } footer: {
+                Text((b.engine ?? "mach9") == "d3dmetal"
+                     ? "El traductor de Apple, como en CrossOver: DirectX 11 y 12 directo a Metal, sin esperas de compilación. Funciona con Rosetta."
+                     : "Nativo de Apple Silicon, sin Rosetta. El mejor para DirectX 9 y 10, juegos de 32 bits y programas.")
+                    .font(.caption).foregroundStyle(.secondary)
+            }
             SwiftUI.Section("Ajustes avanzados") {
                 Picker("Windows", selection: Binding(get: { b.windows }, set: { set("windows", $0) })) {
                     Text("Windows 11").tag("win11"); Text("Windows 10").tag("win10"); Text("Windows 8.1").tag("win81")
                     Text("Windows 7").tag("win7"); Text("Windows XP").tag("winxp64")
                 }
-                Picker("Gráficos", selection: Binding(get: { b.backend }, set: { set("backend", $0) })) {
-                    Text("Auto").tag("auto"); Text("Metal").tag("metal"); Text("WineD3D").tag("wined3d")
+                if (b.engine ?? "mach9") == "d3dmetal" {
+                    Picker("Gráficos", selection: Binding(get: { b.graphics ?? "auto" }, set: { set("graphics", $0) })) {
+                        Text("Auto").tag("auto"); Text("D3DMetal").tag("d3dmetal"); Text("DXMT").tag("dxmt")
+                        Text("WineD3D").tag("wine")
+                    }
+                    Toggle("AVX en Rosetta", isOn: Binding(get: { b.avx ?? true }, set: { set("avx", $0) }))
+                    Toggle("DLSS con MetalFX", isOn: Binding(get: { b.dlss ?? false }, set: { set("dlss", $0) }))
+                    Toggle("FSR 4 en lugar de MetalFX", isOn: Binding(get: { b.fsr4 ?? false }, set: { set("fsr4", $0) }))
+                        .help("Los juegos con DLSS se escalan con AMD FSR 4.1.2 (red neuronal) en vez de MetalFX. Actívalo y elige DLSS en el juego.")
+                    if b.fsr4 ?? false {
+                        Toggle("Panel de FSR 4", isOn: Binding(get: { b.fsr4Panel ?? false }, set: { set("fsr4_panel", $0) }))
+                            .help("Una ventana junto al juego que dice si FSR 4 está activo y deja elegir modo y nitidez.")
+                            .disabled(!(b.fsr4Ready ?? false))
+                    }
+                } else {
+                    Picker("Gráficos", selection: Binding(get: { b.backend }, set: { set("backend", $0) })) {
+                        Text("Auto").tag("auto"); Text("Metal").tag("metal"); Text("WineD3D").tag("wined3d")
+                    }
                 }
                 Toggle("Alta resolución", isOn: Binding(get: { b.retina }, set: { set("retina", $0) }))
                 Toggle("MSync", isOn: Binding(get: { b.msync }, set: { set("msync", $0) }))
@@ -185,6 +213,7 @@ struct SettingsView: View {
             }
             SwiftUI.Section("Arreglos por juego") {
                 LabeledContent("Juegos con arreglo", value: "\(core.state?.fixes.games ?? 0)")
+                LabeledContent("Juegos en la base de Highball", value: "\(core.state?.fixes.compat ?? 0)")
                 HStack {
                     Button("Actualizar arreglos") { core.send(["cmd": "update_fixes"]) }
                     if let t = core.state?.tasks["fixes"] { ProgressView().controlSize(.small); Text(t).font(.caption) }
@@ -200,6 +229,7 @@ struct SettingsView: View {
                 LabeledContent("Irori", value: "Epic y GOG sin launcher")
                 LabeledContent("Lutris y winetricks", value: "instaladores")
                 LabeledContent("umu-protonfixes", value: "arreglos por juego")
+                LabeledContent("highball-db", value: "compatibilidad en Mac y antitrampas")
             }
         }
         .formStyle(.grouped)

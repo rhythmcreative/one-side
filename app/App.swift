@@ -89,7 +89,7 @@ struct RootView: View {
             case .bottle(let id): BottleView(id: id)
             }
         }
-        .overlay(alignment: .bottom) { ToastView() }
+        .overlay(alignment: .bottom) { VStack(spacing: 8) { ShaderPrepBanner(); ToastView() } }
         .dropDestination(for: URL.self) { urls, _ in
             guard let u = urls.first else { return false }
             switch u.pathExtension.lowercased() {
@@ -183,6 +183,31 @@ func deleteBottle(_ core: Core, _ b: Bottle) {
     if a.runModal() == .alertFirstButtonReturn {
         core.send(["cmd": "delete_bottle", "id": b.id])
         core.section = .library
+    }
+}
+
+/// While a game compiles its biggest shaders for the first time it shows black: say so.
+struct ShaderPrepBanner: View {
+    @EnvironmentObject var core: Core
+
+    var body: some View {
+        if let n = core.state?.shadersPending, n > 0 {
+            HStack(spacing: 12) {
+                ProgressView().controlSize(.small)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Preparando los gráficos del juego").font(.callout.weight(.semibold))
+                    Text("Solo la primera vez: faltan \(n) shader\(n == 1 ? "" : "s") grandes. Mientras tanto el juego puede verse en negro; la próxima vez arrancará rápido.")
+                        .font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+                }
+            }
+            .padding(.horizontal, 16).padding(.vertical, 11)
+            .frame(maxWidth: 520)
+            .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 12))
+            .overlay(RoundedRectangle(cornerRadius: 12).strokeBorder(.separator, lineWidth: 0.5))
+            .shadow(color: .black.opacity(0.12), radius: 16, y: 6)
+            .padding(.bottom, core.toast == nil ? 22 : 0)
+            .transition(.move(edge: .bottom).combined(with: .opacity))
+        }
     }
 }
 

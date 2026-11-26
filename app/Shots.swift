@@ -68,5 +68,15 @@ enum Shots {
         w.contentView = NSHostingView(rootView: AboutView().preferredColorScheme(dark ? .dark : .light))
         w.setContentSize(NSSize(width: 620, height: 560))
         snap("about")
+        // The highball-db box, as the inspector shows it for each kind of game.
+        let samples = [
+            CompatInfo(level: "bad", label: "No funciona en Mac: antitrampas del sistema", notes: "Easy Anti-Cheat kernel mode; Epic explicitly does not support Wine", anticheat: ["Easy Anti-Cheat"], renderer: nil, url: "https://gethighball.com/games/fortnite/"),
+            CompatInfo(level: "good", label: "Comprobado en un Mac con Apple Silicon", notes: "Re-verified on engine r2 on 2026-09-10: the Valve logo, the office scene and the Start/Options/Quit menu all render on DXVK at 30.8 fps, GPU bound at 29 ms per frame.", anticheat: [], renderer: "En Highball va con DXVK, que One-Side no trae; si falla, prueba WineD3D", url: "https://gethighball.com/games/aperture-desk-job/"),
+            CompatInfo(level: "info", label: "Funciona según la comunidad", notes: "DirectX 11 build on DXMT is the reported way to play.", anticheat: [], renderer: "Recomendado: DXMT, el que usa Auto", url: nil),
+        ]
+        w.contentView = NSHostingView(rootView: VStack(spacing: 12) { ForEach(samples, id: \.self) { CompatBox(compat: $0) } }
+            .padding(18).frame(width: 380).environmentObject(core).preferredColorScheme(dark ? .dark : .light))
+        w.setContentSize(NSSize(width: 380, height: 560))
+        snap("compat")
     }
 }

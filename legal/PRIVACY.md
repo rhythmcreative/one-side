@@ -19,8 +19,9 @@ Solo cuando hace falta para lo que pides, y sin enviar datos tuyos:
 | Servicio | Para qué | Qué recibe |
 |---|---|---|
 | Steam (store.steampowered.com, steamstatic.com) | Buscar portadas e imágenes; descargar el instalador de Steam | El nombre del juego que se busca |
-| GitHub (github.com, githubusercontent.com) | Descargar el motor Mach9, winetricks y la base de arreglos | Nada más que la descarga |
+| GitHub (github.com, githubusercontent.com) | Descargar los motores Mach9 y MetalSharp Wine (D3DMetal), winetricks y la base de arreglos | Nada más que la descarga |
 | Lutris (lutris.net) | Buscar instaladores de la comunidad | El texto que buscas |
+| Highball (gethighball.com) | Descargar su base de compatibilidad en Mac, la misma para todos | Nada más que la descarga |
 | Simple Icons (simpleicons.org) | Logotipos de las tiendas | Nada más que la descarga |
 | Webs oficiales de cada tienda o programa | Descargar su instalador cuando lo pides | Nada más que la descarga |
 | Epic Games y GOG | Solo si inicias sesión: tu biblioteca y las descargas | Lo que esas tiendas requieren, según sus propias políticas de privacidad |

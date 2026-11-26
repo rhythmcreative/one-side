@@ -5,13 +5,17 @@
 pub mod art;
 pub mod auto;
 pub mod catalog;
+pub mod compat;
 pub mod engine;
 pub mod ffi;
 pub mod fixes;
+pub mod fsr4;
+pub mod gamefix;
 pub mod install;
 pub mod legal;
 pub mod library;
 pub mod native;
+pub mod optiscaler;
 pub mod stores;
 pub mod tools;
 
