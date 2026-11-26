@@ -355,6 +355,14 @@ pub struct Bottle {
 
 const CONFIG_FILE: &str = "one-side.json";
 
+static CONFIG_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+/// Held while a bottle's settings are read, changed and saved, so two changes at
+/// the same time (the interface and a job) never overwrite each other.
+pub fn config_lock() -> std::sync::MutexGuard<'static, ()> {
+    CONFIG_LOCK.lock().unwrap_or_else(|e| e.into_inner())
+}
+
 impl Bottle {
     pub fn dir(&self) -> PathBuf {
         bottles_dir().join(&self.id)
@@ -390,21 +398,38 @@ impl Bottle {
         self.config.launcher.as_deref().is_some_and(|l| Path::new(l).exists())
     }
 
+    /// Writes the settings file. A crash, a power cut or a full disk never leaves a
+    /// half-written one: the new file reaches the disk before it replaces the old
+    /// (`write_atomic`), and the last good file is kept as `one-side.json.bak`.
+    /// Changes to a bottle that already exists go through [`Bottle::update`].
     pub fn save(&self) -> std::io::Result<()> {
-        fs::create_dir_all(self.dir())?;
         let json = serde_json::to_vec_pretty(&self.config).map_err(std::io::Error::other)?;
-        // Write to a side file and rename it over: a crash or a full disk never leaves
-        // a half-written settings file (which would make the bottle disappear).
         let dest = self.dir().join(CONFIG_FILE);
-        let tmp = dest.with_extension("json.tmp");
-        fs::write(&tmp, json)?;
-        if dest.exists() {
-            let _ = fs::copy(&dest, dest.with_extension("json.bak"));
+        if let Ok(old) = fs::read(&dest) {
+            // Only a copy that reads back is worth keeping.
+            if old != json && serde_json::from_slice::<BottleConfig>(&old).is_ok() {
+                crate::write_atomic(&dest.with_extension("json.bak"), &old)?;
+            }
         }
-        fs::rename(&tmp, &dest)
+        crate::write_atomic(&dest, &json)
+    }
+
+    /// Changes a bottle's settings without losing anybody else's: under
+    /// [`config_lock`], it reads the file as it is now, applies `f` and saves.
+    /// Long jobs (installers, Auto's retries) hold a copy made when they started,
+    /// so saving that copy would undo what the user changed meanwhile.
+    pub fn update(id: &str, f: impl FnOnce(&mut BottleConfig)) -> std::io::Result<Self> {
+        let _l = config_lock();
+        let mut b = Self::load(id).ok_or_else(|| std::io::Error::new(std::io::ErrorKind::NotFound, "that bottle is gone"))?;
+        f(&mut b.config);
+        b.save()?;
+        Ok(b)
     }
 
     pub fn load(id: &str) -> Option<Self> {
+        if id.starts_with('.') {
+            return None;
+        }
         let dir = bottles_dir().join(id);
         // If the settings file is unreadable, fall back to the copy kept by the last save.
         let config = [CONFIG_FILE.to_owned(), CONFIG_FILE.replace(".json", ".json.bak")]
@@ -428,7 +453,7 @@ impl Bottle {
     /// A free folder name for a new bottle called `name`.
     pub fn new_id(name: &str) -> String {
         let base: String = name.to_lowercase().chars().map(|c| if c.is_alphanumeric() { c } else { '-' }).collect();
-        let base = if base.is_empty() { "botella".to_owned() } else { base };
+        let base = if base.is_empty() { "bottle".to_owned() } else { base };
         let mut id = base.clone();
         let mut n = 2;
         while bottles_dir().join(&id).exists() {
@@ -716,7 +741,7 @@ impl Bottle {
     pub fn spawn_for(&self, args: &[String], cwd: Option<&Path>, game: Option<(&Game, &FixDb)>) -> std::io::Result<Child> {
         let wine = self.wine();
         if !wine.exists() {
-            return Err(std::io::Error::other(format!("Falta el motor en {}", wine.display())));
+            return Err(std::io::Error::other(format!("The engine is missing at {}", wine.display())));
         }
         let starts_steam = self.config.engine == Engine::D3dmetal
             && args.first().is_some_and(|a| a.to_lowercase().ends_with("steam.exe"))
@@ -725,7 +750,7 @@ impl Bottle {
         if starts_steam {
             // Games Steam starts get Steam's environment: remember which one it has.
             let env: HashMap<String, String> = self.d3dmetal_env(game).into_iter().collect();
-            let _ = fs::write(self.steam_env_file(), serde_json::to_vec(&env).unwrap_or_default());
+            let _ = crate::write_atomic(&self.steam_env_file(), &serde_json::to_vec(&env).unwrap_or_default());
         }
         Ok(child)
     }
@@ -759,7 +784,18 @@ impl Bottle {
             return Ok(());
         }
         let Some(steam) = self.config.launcher.clone() else { return Ok(()) };
-        report(format!("Reiniciando Steam para {} ({})", g.name, self.graphics(Some((g, fixes))).env_value()));
+        let _ = steam;
+        report(format!("Restarting Steam for {} ({})", g.name, self.graphics(Some((g, fixes))).env_value()));
+        self.steam_shutdown().map_err(|_| "Steam didn't close (is it downloading something?). Quit Steam and press Play again.".to_owned())
+    }
+
+    /// Asks the bottle's Steam to close, as its own menu does (never killed: it may be
+    /// writing a download or a cloud save), and waits up to 30 s for it.
+    pub fn steam_shutdown(&self) -> Result<(), String> {
+        if !self.steam_running() {
+            return Ok(());
+        }
+        let Some(steam) = self.config.launcher.clone() else { return Ok(()) };
         let _ = self.spawn(&[steam, "-shutdown".into()], None).and_then(|mut c| c.wait());
         for _ in 0..60 {
             if !self.steam_running() {
@@ -770,7 +806,51 @@ impl Bottle {
             }
             std::thread::sleep(std::time::Duration::from_millis(500));
         }
-        Err("Steam no se ha cerrado (¿está descargando algo?). Ciérralo y vuelve a darle a Jugar.".into())
+        Err("Steam didn't close (is it downloading something?). Quit Steam and try again.".into())
+    }
+
+    /// Whether the bottle's wineserver is up, so Wine owns its registry files now:
+    /// wineserver works in /tmp/.wine-<uid>/server-<dev>-<inode of the prefix>.
+    pub fn running(&self) -> bool {
+        use std::os::unix::fs::MetadataExt;
+        let Ok(m) = fs::metadata(self.prefix()) else { return false };
+        let dir = format!("/server-{:x}-{:x}", m.dev(), m.ino());
+        let Ok(out) = Command::new("/usr/sbin/lsof").args(["-a", "-c", "wineserver", "-d", "cwd", "-Fn"]).output() else { return false };
+        String::from_utf8_lossy(&out.stdout).lines().any(|l| l.starts_with('n') && l.ends_with(&dir))
+    }
+
+    /// Wine keeps the bottle's Windows registry in three files, written without
+    /// waiting for the disk, so a power cut can leave one empty or cut short and the
+    /// whole bottle broken. While the bottle is stopped this keeps a copy of each
+    /// good file (`<name>.oneside-bak`) and puts the copy back over a broken one.
+    /// Returns the files it put back.
+    pub fn guard_registry(&self) -> Vec<&'static str> {
+        fn good(d: &[u8]) -> bool {
+            d.len() > 64 && d.starts_with(b"WINE REGISTRY Version 2") && d.ends_with(b"\n")
+        }
+        let mut restored = vec![];
+        if !self.prefix().exists() || self.running() {
+            return restored;
+        }
+        for f in ["system.reg", "user.reg", "userdef.reg"] {
+            let p = self.prefix().join(f);
+            let bak = self.prefix().join(format!("{f}.oneside-bak"));
+            match fs::read(&p).ok().filter(|d| good(d)) {
+                Some(d) => {
+                    if fs::read(&bak).ok().as_deref() != Some(&d[..]) {
+                        let _ = crate::write_atomic(&bak, &d);
+                    }
+                }
+                None => {
+                    if let Some(b) = fs::read(&bak).ok().filter(|b| good(b)) {
+                        if crate::write_atomic(&p, &b).is_ok() {
+                            restored.push(f);
+                        }
+                    }
+                }
+            }
+        }
+        restored
     }
 
     /// Runs wine with `args` and waits for it.
@@ -816,7 +896,7 @@ impl Bottle {
             .arg(&self.id)
             .status()
             .map_err(|e| e.to_string())?;
-        if st.success() { Ok(()) } else { Err("No se pudo exportar la botella".into()) }
+        if st.success() { Ok(()) } else { Err("Couldn't export the bottle".into()) }
     }
 
     /// Unpacks a bottle exported with [`Bottle::export`] under a free name.
@@ -826,10 +906,10 @@ impl Bottle {
         fs::create_dir_all(&tmp).map_err(|e| e.to_string())?;
         let st = Command::new("/usr/bin/tar").arg("-xzf").arg(archive).arg("-C").arg(&tmp).status().map_err(|e| e.to_string())?;
         if !st.success() {
-            return Err("El archivo no es una botella de One-Side".into());
+            return Err("That file isn't a One-Side bottle".into());
         }
         let inner = fs::read_dir(&tmp).map_err(|e| e.to_string())?.flatten().find(|e| e.path().join(CONFIG_FILE).exists());
-        let inner = inner.ok_or("El archivo no tiene una botella dentro")?.path();
+        let inner = inner.ok_or("There's no bottle in that file")?.path();
         let cfg: BottleConfig = serde_json::from_slice(&fs::read(inner.join(CONFIG_FILE)).map_err(|e| e.to_string())?)
             .map_err(|e| e.to_string())?;
         let id = Bottle::new_id(&cfg.name);
@@ -898,16 +978,16 @@ pub fn latest_engine() -> Result<Release, String> {
         .header("User-Agent", "one-side")
         .header("Accept", "application/vnd.github+json")
         .call()
-        .map_err(|e| format!("No se pudo consultar GitHub: {e}"))?
+        .map_err(|e| format!("Couldn't reach GitHub: {e}"))?
         .into_body();
     let j: serde_json::Value = serde_json::from_str(&body.read_to_string().map_err(|e| e.to_string())?).map_err(|e| e.to_string())?;
-    let tag = j["tag_name"].as_str().ok_or("Respuesta de GitHub sin versión")?.to_owned();
+    let tag = j["tag_name"].as_str().ok_or("GitHub didn't return a version")?.to_owned();
     let want = format!("wine-{tag}-macos-arm64.tar.xz");
     let url = j["assets"]
         .as_array()
         .and_then(|a| a.iter().find(|x| x["name"].as_str() == Some(want.as_str())))
         .and_then(|x| x["browser_download_url"].as_str())
-        .ok_or("La versión no trae el motor para Mac")?
+        .ok_or("That release has no Mac engine")?
         .to_owned();
     Ok(Release { tag, url })
 }
@@ -922,9 +1002,13 @@ pub fn install_engine(rel: &Release, mut progress: impl FnMut(f32)) -> Result<()
     fs::create_dir_all(&staging).map_err(|e| e.to_string())?;
     let st = Command::new("/usr/bin/tar").arg("-xJf").arg(&tarball).arg("-C").arg(&staging).status().map_err(|e| e.to_string())?;
     if !st.success() || !staging.join("wine/bin/wine").exists() {
-        return Err("El motor descargado no es válido".into());
+        let _ = fs::remove_dir_all(&staging);
+        let _ = fs::remove_file(&tarball);
+        return Err("The downloaded engine is broken".into());
     }
-    for b in Bottle::load_all() {
+    // Only Mach9's bottles run on it; D3DMetal bottles have their own Wine.
+    let mach9 = || Bottle::load_all().into_iter().filter(|b| b.config.engine == Engine::Mach9);
+    for b in mach9() {
         b.kill_all();
     }
     let old = base.join("wine.old");
@@ -936,8 +1020,8 @@ pub fn install_engine(rel: &Release, mut progress: impl FnMut(f32)) -> Result<()
     let _ = fs::remove_dir_all(&staging);
     let _ = fs::remove_dir_all(&old);
     let _ = fs::remove_file(&tarball);
-    fs::write(base.join("VERSION"), &rel.tag).map_err(|e| e.to_string())?;
-    for b in Bottle::load_all() {
+    crate::write_atomic(&base.join("VERSION"), rel.tag.as_bytes()).map_err(|e| e.to_string())?;
+    for b in mach9() {
         let _ = b.run(&args(&["wineboot", "-u"]), None);
     }
     Ok(())
@@ -962,33 +1046,33 @@ pub fn rosetta_installed() -> bool {
 /// SHA256SUMS and its Developer ID signature, and puts it in `engine-metalsharp`.
 pub fn install_d3dmetal(mut progress: impl FnMut(f32)) -> Result<String, String> {
     if !rosetta_installed() {
-        return Err("Para D3DMetal hace falta Rosetta. Instálalo con: softwareupdate --install-rosetta".into());
+        return Err("D3DMetal needs Rosetta. Install it with: softwareupdate --install-rosetta".into());
     }
     let mut body = crate::http_get("https://api.github.com/repos/metalsharp/MetalSharp-Wine/releases/latest")
         .header("User-Agent", "one-side")
         .header("Accept", "application/vnd.github+json")
         .call()
-        .map_err(|e| format!("No se pudo consultar GitHub: {e}"))?
+        .map_err(|e| format!("Couldn't reach GitHub: {e}"))?
         .into_body();
     let j: serde_json::Value = serde_json::from_str(&body.read_to_string().map_err(|e| e.to_string())?).map_err(|e| e.to_string())?;
-    let tag = j["tag_name"].as_str().ok_or("Respuesta de GitHub sin versión")?.to_owned();
+    let tag = j["tag_name"].as_str().ok_or("GitHub didn't return a version")?.to_owned();
     if tag == d3dmetal_version() && d3dmetal_installed() {
         return Ok(tag);
     }
-    let assets = j["assets"].as_array().ok_or("La versión no trae archivos")?;
+    let assets = j["assets"].as_array().ok_or("That release has no files")?;
     let asset = |pred: &dyn Fn(&str) -> bool| {
         assets.iter().find_map(|a| {
             let n = a["name"].as_str()?;
             pred(n).then(|| (n.to_owned(), a["browser_download_url"].as_str().unwrap_or_default().to_owned()))
         })
     };
-    let (zip_name, zip_url) = asset(&|n| n.ends_with("-x86_64.zip")).ok_or("No hay versión x86_64 con D3DMetal")?;
-    let (_, sums_url) = asset(&|n| n == "SHA256SUMS").ok_or("La versión no trae SHA256SUMS")?;
+    let (zip_name, zip_url) = asset(&|n| n.ends_with("-x86_64.zip")).ok_or("There's no x86_64 build with D3DMetal")?;
+    let (_, sums_url) = asset(&|n| n == "SHA256SUMS").ok_or("That release has no SHA256SUMS")?;
     let sums = crate::http_get(&sums_url).call().map_err(|e| e.to_string())?.into_body().read_to_string().map_err(|e| e.to_string())?;
     let want = sums
         .lines()
         .find_map(|l| l.split_once(char::is_whitespace).filter(|(_, f)| f.trim().trim_start_matches('*') == zip_name).map(|(h, _)| h.to_lowercase()))
-        .ok_or("SHA256SUMS no tiene el archivo")?;
+        .ok_or("SHA256SUMS doesn't list the file")?;
 
     let zip = downloads_dir().join(&zip_name);
     crate::install::download(&zip_url, &zip, &mut progress)?;
@@ -996,7 +1080,7 @@ pub fn install_d3dmetal(mut progress: impl FnMut(f32)) -> Result<String, String>
     let got = String::from_utf8_lossy(&out.stdout).split_whitespace().next().unwrap_or_default().to_lowercase();
     if got != want {
         let _ = fs::remove_file(&zip);
-        return Err("La descarga de D3DMetal no coincide con su suma SHA-256".into());
+        return Err("The D3DMetal download doesn't match its SHA-256".into());
     }
 
     let base = support().join("engine-metalsharp");
@@ -1007,13 +1091,13 @@ pub fn install_d3dmetal(mut progress: impl FnMut(f32)) -> Result<String, String>
     let app = staging.join("MetalSharp-Wine-x86_64.app");
     if !st.success() || !app.join("Contents/MacOS/wine").exists() {
         let _ = fs::remove_dir_all(&staging);
-        return Err("El motor D3DMetal descargado no es válido".into());
+        return Err("The downloaded D3DMetal engine is broken".into());
     }
     let sig = Command::new("/usr/bin/codesign").args(["-dv", "--verbose=2"]).arg(&app).output().map_err(|e| e.to_string())?;
     let ok = Command::new("/usr/bin/codesign").args(["--verify", "--strict"]).arg(&app).status().is_ok_and(|s| s.success());
     if !ok || !String::from_utf8_lossy(&sig.stderr).contains(&format!("TeamIdentifier={D3DMETAL_TEAM}")) {
         let _ = fs::remove_dir_all(&staging);
-        return Err("La firma del motor D3DMetal no es la esperada".into());
+        return Err("The D3DMetal engine isn't signed by the expected developer".into());
     }
 
     for b in Bottle::load_all().into_iter().filter(|b| b.config.engine == Engine::D3dmetal) {
@@ -1027,7 +1111,7 @@ pub fn install_d3dmetal(mut progress: impl FnMut(f32)) -> Result<String, String>
     fs::rename(&staging, &base).map_err(|e| e.to_string())?;
     let _ = fs::remove_dir_all(&old);
     let _ = fs::remove_file(&zip);
-    fs::write(base.join("VERSION"), &tag).map_err(|e| e.to_string())?;
+    crate::write_atomic(&base.join("VERSION"), tag.as_bytes()).map_err(|e| e.to_string())?;
     Ok(tag)
 }
 
@@ -1085,7 +1169,7 @@ mod tests {
         Game {
             key: key.into(),
             name: "Prueba".into(),
-            source: "Propio",
+            source: "Custom",
             bottle: "b".into(),
             launch: crate::library::Launch::Url(String::new()),
             custom: None,

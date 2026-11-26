@@ -40,10 +40,10 @@ impl Api {
         match (self, wined3d) {
             (Self::Dx9, false) => "mtld3d → Metal",
             (Self::Dx10 | Self::Dx11, false) => "DXMT → Metal",
-            (Self::Dx12, false) => "vkd3d-proton → Vulkan → Metal (hasta nivel 12_0, sin trazado de rayos)",
+            (Self::Dx12, false) => "vkd3d-proton → Vulkan → Metal (up to feature level 12_0, no ray tracing)",
             (Self::Vulkan, _) => "KosmicKrisp → Metal",
-            (Self::OpenGl, _) => "OpenGL de Wine",
-            (Self::Dx12, true) => "vkd3d-proton (WineD3D no hace DX12)",
+            (Self::OpenGl, _) => "Wine's OpenGL",
+            (Self::Dx12, true) => "vkd3d-proton (WineD3D doesn't do DX12)",
             _ => "WineD3D",
         }
     }
@@ -53,11 +53,11 @@ impl Api {
         use crate::engine::Graphics as G;
         match (self, lane) {
             (Self::Dx11 | Self::Dx12, G::Auto | G::D3dmetal) => "D3DMetal → Metal",
-            (Self::Dx10, G::Auto | G::D3dmetal) => "WineD3D (D3DMetal no hace DX10)",
+            (Self::Dx10, G::Auto | G::D3dmetal) => "WineD3D (D3DMetal doesn't do DX10)",
             (Self::Dx10 | Self::Dx11 | Self::Dx12, G::Dxmt) => "DXMT → Metal",
-            (Self::Dx12, G::Wine) => "vkd3d de Wine",
+            (Self::Dx12, G::Wine) => "Wine's vkd3d",
             (Self::Vulkan, _) => "MoltenVK → Metal",
-            (Self::OpenGl, _) => "OpenGL de Wine → Metal",
+            (Self::OpenGl, _) => "Wine's OpenGL → Metal",
             _ => "WineD3D",
         }
     }
@@ -96,9 +96,9 @@ impl Analysis {
     fn summary_with(&self, path: impl Fn(Api) -> &'static str) -> String {
         let mut s = match self.main_api() {
             Some(a) => format!("{} → {}", a.label(), path(a)),
-            None => "API no detectada → reglas del motor".to_owned(),
+            None => "API not found → engine rules".to_owned(),
         };
-        s.push_str(&format!(" · {} bits", self.bits));
+        s.push_str(&format!(" · {}-bit", self.bits));
         if let Some(e) = self.engine {
             s.push_str(&format!(" · {e}"));
         }

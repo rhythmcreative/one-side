@@ -37,23 +37,23 @@ impl Compat {
 
     pub fn label(&self) -> &'static str {
         match self.status.as_str() {
-            "verified-local" => "Comprobado en un Mac con Apple Silicon",
-            "reported-upstream" => "Funciona según las notas de sus desarrolladores",
-            "community" => "Funciona según la comunidad",
-            "blocked-anticheat" => "No funciona en Mac: antitrampas del sistema",
-            "blocked-publisher" => "No funciona en Mac: su editora lo bloquea",
-            "anticheat-warning" => "Usa antitrampas: puede no funcionar",
-            _ => "Sin datos",
+            "verified-local" => "Tested on an Apple silicon Mac",
+            "reported-upstream" => "Works, according to its developers",
+            "community" => "Works, according to the community",
+            "blocked-anticheat" => "Doesn't work on Mac: kernel anti-cheat",
+            "blocked-publisher" => "Doesn't work on Mac: blocked by its publisher",
+            "anticheat-warning" => "Uses anti-cheat: may not work",
+            _ => "No data",
         }
     }
 
     /// What Highball's renderer means on the D3DMetal engine, whose Auto follows it.
     pub fn renderer_note_d3dmetal(&self) -> Option<String> {
         Some(match self.renderer.as_deref()? {
-            "d3dmetal" | "vkd3d" => "Recomendado: D3DMetal, el que usa Auto".into(),
-            "dxmt" => "Recomendado: DXMT, el que usa Auto".into(),
-            "wined3d" => "Recomendado: WineD3D (Auto lo usa)".into(),
-            "dxvk" => "En Highball va con DXVK, que este motor no tiene; si falla, prueba WineD3D".into(),
+            "d3dmetal" | "vkd3d" => "Recommended: D3DMetal, which Auto uses".into(),
+            "dxmt" => "Recommended: DXMT, which Auto uses".into(),
+            "wined3d" => "Recommended: WineD3D, which Auto uses".into(),
+            "dxvk" => "Highball runs it on DXVK, which this engine doesn't have. If it fails, try WineD3D".into(),
             _ => return None,
         })
     }
@@ -61,11 +61,11 @@ impl Compat {
     /// What Highball's renderer means on this engine, when it differs from Auto.
     pub fn renderer_note(&self) -> Option<String> {
         Some(match self.renderer.as_deref()? {
-            "wined3d" => "Recomendado: WineD3D (Auto lo usa)".into(),
-            "dxmt" => "Recomendado: DXMT, el que usa Auto".into(),
-            "vkd3d" => "Recomendado: vkd3d-proton, el que usa Auto".into(),
-            "d3dmetal" => "En Highball va con D3DMetal; aquí va con DXMT o vkd3d-proton".into(),
-            "dxvk" => "En Highball va con DXVK, que One-Side no trae; si falla, prueba WineD3D".into(),
+            "wined3d" => "Recommended: WineD3D, which Auto uses".into(),
+            "dxmt" => "Recommended: DXMT, which Auto uses".into(),
+            "vkd3d" => "Recommended: vkd3d-proton, which Auto uses".into(),
+            "d3dmetal" => "Highball runs it on D3DMetal. On this engine it runs on DXMT or vkd3d-proton".into(),
+            "dxvk" => "Highball runs it on DXVK, which One-Side doesn't have. If it fails, try WineD3D".into(),
             _ => return None,
         })
     }
@@ -118,9 +118,9 @@ pub fn parse(games: &Value, anticheat: &Value) -> HashMap<String, Compat> {
             status: if blocked { "blocked-anticheat" } else { "anticheat-warning" }.into(),
             renderer: None,
             notes: if blocked {
-                format!("Antitrampas: {}. Funciona dentro del sistema de Windows, y eso no existe en Wine.", names.join(", "))
+                format!("Anti-cheat: {}. It runs inside the Windows kernel, which Wine doesn't have.", names.join(", "))
             } else {
-                format!("Antitrampas: {}. Funciona en Linux, pero en Mac no se ha comprobado: el modo en línea puede fallar.", names.join(", "))
+                format!("Anti-cheat: {}. It works on Linux but hasn't been checked on Mac, so online play may fail.", names.join(", "))
             },
             anticheat: names,
             url: None,

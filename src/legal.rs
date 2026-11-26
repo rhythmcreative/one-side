@@ -25,10 +25,7 @@ pub fn accepted(key: &str) -> bool {
 pub fn accept(key: &str) -> std::io::Result<()> {
     let mut a = all();
     a.insert(key.to_owned());
-    fs::create_dir_all(engine::support())?;
-    let tmp = path().with_extension("json.tmp");
-    fs::write(&tmp, serde_json::to_vec_pretty(&a).map_err(std::io::Error::other)?)?;
-    fs::rename(tmp, path())
+    crate::write_atomic(&path(), &serde_json::to_vec_pretty(&a).map_err(std::io::Error::other)?)
 }
 
 /// Whose licence a winetricks dependency comes under.

@@ -1,4 +1,4 @@
-//! What One-Side can install, from its "Instalar una aplicación de Windows" page:
+//! What One-Side can install, from its "Install a Windows App" page:
 //! - the popular stores, with One-Side's own recipes (`stores.rs`);
 //! - the programs winetricks knows how to install (LGPL, downloaded at run time);
 //! - Lutris' community installers (lutris.net public API, the one the Lutris app
@@ -95,7 +95,7 @@ pub struct LutrisGame {
 }
 
 fn get_json(url: &str) -> Result<Value, String> {
-    let text = crate::http_get(url).call().map_err(|e| format!("Lutris no responde: {e}"))?.into_body().with_config().limit(20 << 20).read_to_string().map_err(|e| e.to_string())?;
+    let text = crate::http_get(url).call().map_err(|e| format!("Lutris isn't responding: {e}"))?.into_body().with_config().limit(20 << 20).read_to_string().map_err(|e| e.to_string())?;
     serde_json::from_str(&text).map_err(|e| e.to_string())
 }
 
@@ -341,11 +341,11 @@ pub fn run_recipe(r: &Recipe, b: &Bottle, own: &HashMap<String, PathBuf>, report
             files.insert(f.id.clone(), p.clone());
             continue;
         }
-        let Some(url) = &f.url else { return Err(format!("Falta el archivo «{}»: {}", f.filename, f.prompt)) };
+        let Some(url) = &f.url else { return Err(format!("Missing the file “{}”: {}", f.filename, f.prompt)) };
         let out = dl.join(&f.filename);
         if !out.exists() {
             let name = f.filename.clone();
-            crate::install::download(url, &out, |p| report(format!("Descargando {name} {:.0} %", p * 100.0)))?;
+            crate::install::download(url, &out, |p| report(format!("Downloading {name} {:.0}%", p * 100.0)))?;
         }
         files.insert(f.id.clone(), out);
     }
@@ -377,13 +377,13 @@ pub fn run_recipe(r: &Recipe, b: &Bottle, own: &HashMap<String, PathBuf>, report
                     if exe.extension().is_some_and(|x| x.eq_ignore_ascii_case("msi")) {
                         a = [vec!["msiexec".to_owned(), "/i".to_owned()], a].concat();
                     }
-                    report(format!("Instalando: sigue los pasos de {}", exe.file_name().unwrap_or_default().to_string_lossy()));
+                    report(format!("Installing: follow the steps of {}", exe.file_name().unwrap_or_default().to_string_lossy()));
                     b.run(&a, exe.parent()).map_err(|e| e.to_string())?;
                     b.wait_idle();
                 }
                 "winetricks" => {
                     let verbs: Vec<String> = str_of(&v["app"]).split_whitespace().map(str::to_owned).collect();
-                    report(format!("Instalando {}", verbs.join(", ")));
+                    report(format!("Installing {}", verbs.join(", ")));
                     tools::winetricks(b, &verbs)?;
                 }
                 "set_regedit" => {
@@ -399,7 +399,7 @@ pub fn run_recipe(r: &Recipe, b: &Bottle, own: &HashMap<String, PathBuf>, report
                 fs::create_dir_all(&dst).map_err(io)?;
                 let ok = Command::new("/usr/bin/tar").arg("-xf").arg(&src).arg("-C").arg(&dst).status().is_ok_and(|s| s.success());
                 if !ok {
-                    return Err(format!("No se pudo descomprimir {}", src.display()));
+                    return Err(format!("Couldn't unpack {}", src.display()));
                 }
             }
             "merge" | "copy" => {

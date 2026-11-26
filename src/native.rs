@@ -160,7 +160,7 @@ impl Native {
         ctx.progress = Arc::new(move |p: InstallProgress| {
             if let Some(pc) = p.percent {
                 let speed = p.download_speed.map(|s| format!(" · {:.1} MB/s", s as f64 / 1e6)).unwrap_or_default();
-                r(format!("Descargando {pc:.0} %{speed}"));
+                r(format!("Downloading {pc:.0}%{speed}"));
             }
         });
         ctx.step = Arc::new(move |s: &str| report(s.to_owned()));
@@ -180,7 +180,7 @@ impl Native {
         let out = self.rt.block_on(async move { s.install(&app, &req, ctx).await }).map_err(|e| e.to_string())?;
         match out {
             Outcome::Done => Ok(()),
-            Outcome::Abort => Err("Descarga cancelada".into()),
+            Outcome::Abort => Err("Download cancelled".into()),
             Outcome::Error(e) => Err(e),
         }
     }

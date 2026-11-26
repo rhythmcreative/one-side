@@ -25,7 +25,7 @@ pub const STORES: &[Store] = &[
     Store {
         id: "steam",
         name: "Steam",
-        note: "Tienda de Valve. Instalación automática.",
+        note: "Valve's store. Installs on its own.",
         url: "https://cdn.cloudflare.steamstatic.com/client/installer/SteamSetup.exe",
         file_name: "SteamSetup.exe",
         kind: Kind::Exe,
@@ -37,7 +37,7 @@ pub const STORES: &[Store] = &[
     Store {
         id: "epic",
         name: "Epic Games",
-        note: "Juegos gratis cada semana. Instalación automática.",
+        note: "Free games every week. Installs on its own.",
         url: "https://launcher-public-service-prod06.ol.epicgames.com/launcher/api/installer/download/EpicGamesLauncherInstaller.msi",
         file_name: "EpicInstaller.msi",
         kind: Kind::Msi,
@@ -49,7 +49,7 @@ pub const STORES: &[Store] = &[
     Store {
         id: "gog",
         name: "GOG Galaxy",
-        note: "Juegos sin DRM. El instalador abre su ventana.",
+        note: "DRM-free games. The installer opens its own window.",
         url: "https://webinstallers.gog-statics.com/download/GOG_Galaxy_2.0.exe",
         file_name: "GOG_Galaxy_2.0.exe",
         kind: Kind::Exe,
@@ -61,7 +61,7 @@ pub const STORES: &[Store] = &[
     Store {
         id: "ea",
         name: "EA app",
-        note: "Juegos de Electronic Arts.",
+        note: "Electronic Arts games.",
         url: "https://origin-a.akamaihd.net/EA-Desktop-Client-Download/installer-releases/EAappInstaller.exe",
         file_name: "EAappInstaller.exe",
         kind: Kind::Exe,
@@ -73,7 +73,7 @@ pub const STORES: &[Store] = &[
     Store {
         id: "ubisoft",
         name: "Ubisoft Connect",
-        note: "Juegos de Ubisoft. Instalación automática.",
+        note: "Ubisoft games. Installs on its own.",
         url: "https://static3.cdn.ubi.com/orbit/launcher_installer/UbisoftConnectInstaller.exe",
         file_name: "UbisoftConnectInstaller.exe",
         kind: Kind::Exe,
@@ -85,7 +85,7 @@ pub const STORES: &[Store] = &[
     Store {
         id: "battlenet",
         name: "Battle.net",
-        note: "Juegos de Blizzard y Activision.",
+        note: "Blizzard and Activision games.",
         url: "https://downloader.battle.net/download/getInstaller?os=win&installer=Battle.net-Setup.exe",
         file_name: "Battle.net-Setup.exe",
         kind: Kind::Exe,
@@ -97,7 +97,7 @@ pub const STORES: &[Store] = &[
     Store {
         id: "rockstar",
         name: "Rockstar Games",
-        note: "GTA, Red Dead y compañía.",
+        note: "GTA, Red Dead and the rest.",
         url: "https://gamedownloads.rockstargames.com/public/installer/Rockstar-Games-Launcher.exe",
         file_name: "Rockstar-Games-Launcher.exe",
         kind: Kind::Exe,
@@ -109,7 +109,7 @@ pub const STORES: &[Store] = &[
     Store {
         id: "amazon",
         name: "Amazon Games",
-        note: "Juegos de Prime Gaming.",
+        note: "Prime Gaming games.",
         url: "https://download.amazongames.com/AmazonGamesSetup.exe",
         file_name: "AmazonGamesSetup.exe",
         kind: Kind::Exe,
@@ -121,7 +121,7 @@ pub const STORES: &[Store] = &[
     Store {
         id: "itch",
         name: "itch.io",
-        note: "Juegos indie.",
+        note: "Indie games.",
         url: "https://itch.io/app/download?platform=windows",
         file_name: "itch-setup.exe",
         kind: Kind::Exe,

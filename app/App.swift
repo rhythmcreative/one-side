@@ -26,26 +26,26 @@ struct OneSideApp: App {
         .commands {
             CommandGroup(replacing: .appInfo) { AboutMenuButton() }
             CommandGroup(replacing: .newItem) {
-                Button("Instalar una aplicación…") { core.section = .install; core.installPath = [] }
+                Button("Install an App…") { core.section = .install; core.installPath = [] }
                     .keyboardShortcut("n")
-                Button("Instalar desde un archivo…") {
-                    if let u = pickFile("Elige el instalador (.exe o .msi)", types: ["exe", "msi"]) { core.installFile(u) }
+                Button("Install from a File…") {
+                    if let u = pickFile("Choose the installer (.exe or .msi)", types: ["exe", "msi"]) { core.installFile(u) }
                 }
                 .keyboardShortcut("o")
-                Button("Nueva botella vacía…") { newBottle(core) }
+                Button("New Empty Bottle…") { newBottle(core) }
                     .keyboardShortcut("n", modifiers: [.command, .shift])
-                Button("Importar una botella…") {
-                    if let u = pickFile("Elige una botella exportada", types: ["onesidebottle", "gz"]) { core.send(["cmd": "import_bottle", "path": u.path]) }
+                Button("Import a Bottle…") {
+                    if let u = pickFile("Choose an exported bottle", types: ["onesidebottle", "gz"]) { core.send(["cmd": "import_bottle", "path": u.path]) }
                 }
                 .keyboardShortcut("i", modifiers: [.command, .shift])
             }
             CommandGroup(after: .sidebar) {
-                Button("Biblioteca") { core.section = .library }.keyboardShortcut("1")
-                Button("Instalar") { core.section = .install }.keyboardShortcut("2")
+                Button("Library") { core.section = .library }.keyboardShortcut("1")
+                Button("Install") { core.section = .install }.keyboardShortcut("2")
             }
         }
 
-        Window("Acerca de One-Side", id: "about") {
+        Window("About One-Side", id: "about") {
             AboutView()
                 .preferredColorScheme(appearance == "dark" ? .dark : appearance == "system" ? nil : .light)
         }
@@ -62,13 +62,13 @@ struct OneSideApp: App {
 @MainActor
 func newBottle(_ core: Core) {
     let a = NSAlert()
-    a.messageText = "Nueva botella vacía"
-    a.informativeText = "Un Windows aparte. Lo normal es dejar que cada instalación cree la suya."
+    a.messageText = "New Empty Bottle"
+    a.informativeText = "A separate Windows. Usually it is best to let each install make its own."
     let f = NSTextField(frame: NSRect(x: 0, y: 0, width: 300, height: 24))
-    f.placeholderString = "Nombre"
+    f.placeholderString = "Name"
     a.accessoryView = f
-    a.addButton(withTitle: "Crear")
-    a.addButton(withTitle: "Cancelar")
+    a.addButton(withTitle: "Create")
+    a.addButton(withTitle: "Cancel")
     a.window.initialFirstResponder = f
     if a.runModal() == .alertFirstButtonReturn, !f.stringValue.trimmingCharacters(in: .whitespaces).isEmpty {
         core.send(["cmd": "create_bottle", "name": f.stringValue.trimmingCharacters(in: .whitespaces)])
@@ -121,7 +121,7 @@ struct Sidebar: View {
 
             Label {
                 HStack {
-                    Text("Biblioteca")
+                    Text("Library")
                     Spacer()
                     Text("\(core.games.filter(\.installed).count)").foregroundStyle(.secondary).font(.callout)
                 }
@@ -130,9 +130,9 @@ struct Sidebar: View {
             }
             .tag(Section.library)
 
-            SwiftUI.Section("Botellas") {
+            SwiftUI.Section("Bottles") {
                 if core.bottles.isEmpty {
-                    Text("Ninguna todavía").foregroundStyle(.tertiary).selectionDisabled()
+                    Text("None yet").foregroundStyle(.tertiary).selectionDisabled()
                 }
                 ForEach(core.bottles) { b in
                     HStack {
@@ -142,12 +142,12 @@ struct Sidebar: View {
                     }
                     .tag(Section.bottle(b.id))
                     .contextMenu {
-                        Button("Instalar una aplicación aquí…") {
-                            if let u = pickFile("Elige el instalador (.exe o .msi)", types: ["exe", "msi"]) { core.installFile(u, bottle: b.id) }
+                        Button("Install an App Here…") {
+                            if let u = pickFile("Choose the installer (.exe or .msi)", types: ["exe", "msi"]) { core.installFile(u, bottle: b.id) }
                         }
-                        Button("Abrir el disco C:") { openPath(b.driveC) }
+                        Button("Open Drive C:") { openPath(b.driveC) }
                         Divider()
-                        Button("Borrar la botella…", role: .destructive) { deleteBottle(core, b) }
+                        Button("Delete Bottle…", role: .destructive) { deleteBottle(core, b) }
                     }
                 }
             }
@@ -156,14 +156,14 @@ struct Sidebar: View {
         .safeAreaInset(edge: .bottom) {
             HStack {
                 Button { core.section = .install; core.installPath = [] } label: {
-                    Label("Instalar", systemImage: "plus.app.fill")
+                    Label("Install", systemImage: "plus.app.fill")
                 }
                 .buttonStyle(.plain)
                 .foregroundStyle(.tint)
                 Spacer()
                 SettingsLink { Image(systemName: "gearshape") }
                     .buttonStyle(.plain)
-                    .help("Ajustes (⌘,)")
+                    .help("Settings (⌘,)")
             }
             .padding(.horizontal, 16)
             .padding(.vertical, 12)
@@ -174,12 +174,12 @@ struct Sidebar: View {
 @MainActor
 func deleteBottle(_ core: Core, _ b: Bottle) {
     let a = NSAlert()
-    a.messageText = "¿Borrar la botella «\(b.name)»?"
-    a.informativeText = "Se borra con todo lo que tiene dentro: programas, partidas guardadas y ajustes."
+    a.messageText = "Delete the bottle “\(b.name)”?"
+    a.informativeText = "Everything in it is deleted: programs, saved games and settings."
     a.alertStyle = .warning
-    let del = a.addButton(withTitle: "Borrar")
+    let del = a.addButton(withTitle: "Delete")
     del.hasDestructiveAction = true
-    a.addButton(withTitle: "Cancelar")
+    a.addButton(withTitle: "Cancel")
     if a.runModal() == .alertFirstButtonReturn {
         core.send(["cmd": "delete_bottle", "id": b.id])
         core.section = .library
@@ -195,8 +195,8 @@ struct ShaderPrepBanner: View {
             HStack(spacing: 12) {
                 ProgressView().controlSize(.small)
                 VStack(alignment: .leading, spacing: 2) {
-                    Text("Preparando los gráficos del juego").font(.callout.weight(.semibold))
-                    Text("Solo la primera vez: faltan \(n) shader\(n == 1 ? "" : "s") grandes. Mientras tanto el juego puede verse en negro; la próxima vez arrancará rápido.")
+                    Text("Preparing the game's graphics").font(.callout.weight(.semibold))
+                    Text("First time only: \(n) large shader\(n == 1 ? "" : "s") left. Until then the game may look black; next time it starts fast.")
                         .font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
                 }
             }
@@ -242,21 +242,21 @@ struct WelcomeView: View {
     var body: some View {
         VStack(spacing: 16) {
             Image(nsImage: appIcon()).resizable().frame(width: 96, height: 96)
-            Text("Te damos la bienvenida a One-Side").font(.title.bold())
-            Text("Trae juegos y programas de Windows a tu Mac. Cada uno va en su propia botella y aparece en tu biblioteca con su portada.")
+            Text("Welcome to One-Side").font(.title.bold())
+            Text("Bring Windows games and apps to your Mac. Each one gets its own bottle and shows up in your library with its cover.")
                 .multilineTextAlignment(.center).foregroundStyle(.secondary).frame(maxWidth: 380)
             HStack(spacing: 6) {
-                Text("Pulsa"); KeyCap("⌘N"); Text("para instalar el primero.")
+                Text("Press"); KeyCap("⌘N"); Text("to install your first one.")
             }
             .foregroundStyle(.secondary)
             HStack {
-                Button("Ahora no") { dismiss() }.keyboardShortcut(.cancelAction)
-                Button("Instalar algo") { start(); dismiss() }
+                Button("Not Now") { dismiss() }.keyboardShortcut(.cancelAction)
+                Button("Install Something") { start(); dismiss() }
                     .keyboardShortcut("n")
                     .buttonStyle(.borderedProminent)
             }
             .padding(.top, 6)
-            Text("One-Side es software libre (MIT), no está afiliado a ninguna tienda y no envía datos tuyos a nadie. Más en One-Side › Acerca de One-Side.")
+            Text("One-Side is free software (MIT), is not affiliated with any store and never sends your data anywhere. More in One-Side › About One-Side.")
                 .font(.caption).foregroundStyle(.tertiary).multilineTextAlignment(.center).frame(maxWidth: 380)
         }
         .padding(36)
@@ -286,7 +286,7 @@ struct Stars: View {
                         .foregroundStyle(i < rating.stars ? Color.yellow : Color.secondary.opacity(0.5))
                 }
             }
-            .accessibilityElement().accessibilityLabel("\(rating.stars) de 5 estrellas")
+            .accessibilityElement().accessibilityLabel("\(rating.stars) of 5 stars")
             Text(rating.text)
         }
         .font(size)
@@ -375,7 +375,7 @@ struct WhiteStars: View {
             HStack(spacing: 1) {
                 ForEach(0..<5, id: \.self) { i in Image(systemName: i < rating.stars ? "star.fill" : "star") }
             }
-            .accessibilityElement().accessibilityLabel("\(rating.stars) de 5 estrellas")
+            .accessibilityElement().accessibilityLabel("\(rating.stars) of 5 stars")
             if showText { Text(rating.text).lineLimit(1) }
         }
         .font(.caption).foregroundStyle(.white.opacity(0.9))

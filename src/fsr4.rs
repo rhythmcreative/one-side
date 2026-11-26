@@ -86,7 +86,7 @@ fn step(what: &str, c: &mut Command) -> Result<String, String> {
     if !out.status.success() {
         let tail: Vec<&str> = text.lines().rev().take(12).collect();
         let tail: Vec<&str> = tail.into_iter().rev().collect();
-        return Err(format!("{what} falló:\n{}", tail.join("\n")));
+        return Err(format!("{what} failed:\n{}", tail.join("\n")));
     }
     Ok(text)
 }
@@ -118,48 +118,48 @@ fn write_tools(bin: &Path) -> Result<(), String> {
 /// checks it. Games pick it up the next time they start.
 pub fn install(mut report: impl FnMut(String)) -> Result<String, String> {
     if !crate::engine::rosetta_installed() {
-        return Err("FSR 4 necesita Rosetta. Instálalo con: softwareupdate --install-rosetta".into());
+        return Err("FSR 4 needs Rosetta. Install it with: softwareupdate --install-rosetta".into());
     }
     let clt = Command::new("/usr/bin/xcrun").args(["--find", "clang"]).stdout(Stdio::null()).stderr(Stdio::null()).status();
     if !clt.is_ok_and(|s| s.success()) {
         let _ = Command::new("/usr/bin/xcode-select").arg("--install").status();
-        return Err("FSR 4 se compila en tu Mac y necesita las herramientas de desarrollo de Apple. Instálalas (se ha abierto el instalador) y vuelve a activarlo.".into());
+        return Err("FSR 4 is built on your Mac and needs Apple's Command Line Tools. Install them (the installer just opened) and turn FSR 4 on again.".into());
     }
 
-    report("Buscando FSR 4…".into());
+    report("Looking for FSR 4…".into());
     let mut body = crate::http_get(&format!("https://api.github.com/repos/{REPO}/releases/latest"))
         .header("User-Agent", "one-side")
         .header("Accept", "application/vnd.github+json")
         .call()
-        .map_err(|e| format!("No se pudo consultar GitHub: {e}"))?
+        .map_err(|e| format!("Couldn't reach GitHub: {e}"))?
         .into_body();
     let j: serde_json::Value = serde_json::from_str(&body.read_to_string().map_err(|e| e.to_string())?).map_err(|e| e.to_string())?;
-    let tag = j["tag_name"].as_str().ok_or("Respuesta de GitHub sin versión")?.to_owned();
+    let tag = j["tag_name"].as_str().ok_or("GitHub didn't return a version")?.to_owned();
     if tag == version() && installed() {
         return Ok(tag);
     }
-    let assets = j["assets"].as_array().ok_or("La versión no trae archivos")?;
+    let assets = j["assets"].as_array().ok_or("That release has no files")?;
     let asset = |pred: &dyn Fn(&str) -> bool| {
         assets.iter().find_map(|a| {
             let n = a["name"].as_str()?;
             pred(n).then(|| (n.to_owned(), a["browser_download_url"].as_str().unwrap_or_default().to_owned()))
         })
     };
-    let (zip_name, zip_url) = asset(&|n| n.ends_with("-crossover.zip")).ok_or("La versión de FSR 4 no trae el paquete")?;
-    let (_, sums_url) = asset(&|n| n.starts_with("SHA256SUMS")).ok_or("La versión de FSR 4 no trae SHA256SUMS")?;
+    let (zip_name, zip_url) = asset(&|n| n.ends_with("-crossover.zip")).ok_or("That FSR 4 release has no package")?;
+    let (_, sums_url) = asset(&|n| n.starts_with("SHA256SUMS")).ok_or("That FSR 4 release has no SHA256SUMS")?;
     let sums = crate::http_get(&sums_url).call().map_err(|e| e.to_string())?.into_body().read_to_string().map_err(|e| e.to_string())?;
     let want = sums
         .lines()
         .find_map(|l| l.split_once(char::is_whitespace).filter(|(_, f)| f.trim().trim_start_matches('*') == zip_name).map(|(h, _)| h.to_lowercase()))
-        .ok_or("SHA256SUMS no tiene el paquete de FSR 4")?;
+        .ok_or("SHA256SUMS doesn't list the FSR 4 package")?;
     let zip = downloads_dir().join(&zip_name);
     fs::create_dir_all(downloads_dir()).map_err(|e| e.to_string())?;
-    crate::install::download(&zip_url, &zip, |p| report(format!("Bajando FSR 4 {:.0} %", p * 100.0)))?;
+    crate::install::download(&zip_url, &zip, |p| report(format!("Downloading FSR 4 {:.0}%", p * 100.0)))?;
     let out = Command::new("/usr/bin/shasum").args(["-a", "256"]).arg(&zip).output().map_err(|e| e.to_string())?;
     let got = String::from_utf8_lossy(&out.stdout).split_whitespace().next().unwrap_or_default().to_lowercase();
     if got != want {
         let _ = fs::remove_file(&zip);
-        return Err("La descarga de FSR 4 no coincide con su suma SHA-256".into());
+        return Err("The FSR 4 download doesn't match its SHA-256".into());
     }
 
     // Built where it stays: the build and the shader cache keep absolute paths.
@@ -172,7 +172,7 @@ pub fn install(mut report: impl FnMut(String)) -> Result<String, String> {
     let result = (|| {
         let st = Command::new("/usr/bin/ditto").args(["-x", "-k"]).arg(&zip).arg(&unpack).status().map_err(|e| e.to_string())?;
         let top = fs::read_dir(&unpack).map_err(|e| e.to_string())?.flatten().map(|e| e.path()).find(|p| p.join("hook/fsr4_metalfx.m").exists());
-        let top = top.filter(|_| st.success()).ok_or("El paquete de FSR 4 no es válido")?;
+        let top = top.filter(|_| st.success()).ok_or("The FSR 4 package is broken")?;
         fs::rename(&top, &dest).map_err(|e| e.to_string())?;
         build(&dest, &mut report)
     })();
@@ -183,7 +183,7 @@ pub fn install(mut report: impl FnMut(String)) -> Result<String, String> {
         return Err(e);
     }
     let old = version();
-    fs::write(dir().join("VERSION"), &safe).map_err(|e| e.to_string())?;
+    crate::write_atomic(&dir().join("VERSION"), safe.as_bytes()).map_err(|e| e.to_string())?;
     if !old.is_empty() && old != safe {
         let _ = fs::remove_dir_all(dir().join(old));
     }
@@ -198,24 +198,24 @@ fn build(root: &Path, report: &mut impl FnMut(String)) -> Result<(), String> {
         c.args(["-arm64", "/usr/bin/python3", "-I"]).args(args).current_dir(root);
         c
     };
-    report("Preparando FSR 4…".into());
-    step("Adaptar FSR 4", &mut py(&[&bin.join("patch_sources.py").to_string_lossy(), &root.to_string_lossy()]))?;
-    report("Compilando FSR 4…".into());
+    report("Preparing FSR 4…".into());
+    step("Patching FSR 4", &mut py(&[&bin.join("patch_sources.py").to_string_lossy(), &root.to_string_lossy()]))?;
+    report("Building FSR 4…".into());
     step(
-        "Compilar el hook",
+        "Building the hook",
         &mut py(&[
             "-c",
             "import sys; sys.path.insert(0, 'tools/crossover'); import crossover_fsr4 as c\n\
              c.build_hook(c.DIST / 'hook.log'); c.build_live(); c.build_panel_app()",
         ]),
     )?;
-    step("Compilar la referencia", Command::new("/usr/bin/make").args(["-B", "tools/bin/fsr4mac", "tools/bin/gen_testcase"]).current_dir(root))?;
+    step("Building the reference", Command::new("/usr/bin/make").args(["-B", "tools/bin/fsr4mac", "tools/bin/gen_testcase"]).current_dir(root))?;
 
-    report("Comprobando FSR 4…".into());
-    step("Crear la prueba", Command::new(root.join("tools/bin/gen_testcase")).args([TESTCASE, "quality", "1280", "720", "1920", "1080", "2"]).current_dir(root))?;
+    report("Checking FSR 4…".into());
+    step("Making the test frames", Command::new(root.join("tools/bin/gen_testcase")).args([TESTCASE, "quality", "1280", "720", "1920", "1080", "2"]).current_dir(root))?;
     let reference = "dist/crossover/reference-lite";
     step(
-        "Escalar la prueba",
+        "Upscaling the test frames",
         Command::new(root.join("tools/bin/fsr4mac"))
             .args([TESTCASE, reference, "--fsr-version", "4.1.2", "--profile", "int8-lite", "--auto"])
             .env("FSR4_ROOT", root)
@@ -224,7 +224,7 @@ fn build(root: &Path, report: &mut impl FnMut(String)) -> Result<(), String> {
     // The hook as a game uses it: an x86_64 process, both kinds of command buffer.
     for mode in ["mtl4", "classic"] {
         let out = step(
-            "Probar el hook",
+            "Testing the hook",
             Command::new("/usr/bin/arch")
                 .arg("-x86_64")
                 .arg(root.join("dist/crossover/live_test"))
@@ -241,7 +241,7 @@ fn build(root: &Path, report: &mut impl FnMut(String)) -> Result<(), String> {
                 .current_dir(root),
         )?;
         if !out.contains("live ok") {
-            return Err(format!("El hook de FSR 4 no da la misma imagen que la referencia ({mode})"));
+            return Err(format!("The FSR 4 hook doesn't give the same image as the reference ({mode})"));
         }
     }
     Ok(())

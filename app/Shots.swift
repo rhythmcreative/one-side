@@ -45,7 +45,7 @@ enum Shots {
         core.installPath = [.unlisted(nil)]; snap("detail-unlisted")
         core.installPath = []
         for b in core.bottles { core.section = .bottle(b.id); snap("bottle-\(b.id)") }
-        // The licence prompt: what the core asks for, as the user sees it.
+        // The license prompt: what the core asks for, as the user sees it.
         _ = core.send(["cmd": "install_store", "index": 0])
         var log = "store: \(core.pendingTerms?.key ?? "nada") | \(core.pendingTerms?.title ?? "")\n"
         if let t = core.pendingTerms {
@@ -70,9 +70,9 @@ enum Shots {
         snap("about")
         // The highball-db box, as the inspector shows it for each kind of game.
         let samples = [
-            CompatInfo(level: "bad", label: "No funciona en Mac: antitrampas del sistema", notes: "Easy Anti-Cheat kernel mode; Epic explicitly does not support Wine", anticheat: ["Easy Anti-Cheat"], renderer: nil, url: "https://gethighball.com/games/fortnite/"),
-            CompatInfo(level: "good", label: "Comprobado en un Mac con Apple Silicon", notes: "Re-verified on engine r2 on 2026-09-10: the Valve logo, the office scene and the Start/Options/Quit menu all render on DXVK at 30.8 fps, GPU bound at 29 ms per frame.", anticheat: [], renderer: "En Highball va con DXVK, que One-Side no trae; si falla, prueba WineD3D", url: "https://gethighball.com/games/aperture-desk-job/"),
-            CompatInfo(level: "info", label: "Funciona según la comunidad", notes: "DirectX 11 build on DXMT is the reported way to play.", anticheat: [], renderer: "Recomendado: DXMT, el que usa Auto", url: nil),
+            CompatInfo(level: "bad", label: "Doesn't work on Mac: kernel anti-cheat", notes: "Easy Anti-Cheat kernel mode; Epic explicitly does not support Wine", anticheat: ["Easy Anti-Cheat"], renderer: nil, url: "https://gethighball.com/games/fortnite/"),
+            CompatInfo(level: "good", label: "Tested on an Apple silicon Mac", notes: "Re-verified on engine r2 on 2026-09-10: the Valve logo, the office scene and the Start/Options/Quit menu all render on DXVK at 30.8 fps, GPU bound at 29 ms per frame.", anticheat: [], renderer: "Highball runs it on DXVK, which One-Side doesn't have. If it fails, try WineD3D", url: "https://gethighball.com/games/aperture-desk-job/"),
+            CompatInfo(level: "info", label: "Works, according to the community", notes: "DirectX 11 build on DXMT is the reported way to play.", anticheat: [], renderer: "Recommended: DXMT, which Auto uses", url: nil),
         ]
         w.contentView = NSHostingView(rootView: VStack(spacing: 12) { ForEach(samples, id: \.self) { CompatBox(compat: $0) } }
             .padding(18).frame(width: 380).environmentObject(core).preferredColorScheme(dark ? .dark : .light))

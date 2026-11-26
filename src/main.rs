@@ -21,9 +21,10 @@ fn cli() -> Option<i32> {
     }
     let report = |t: String| eprintln!("{t}");
     // Like the window, the command line never accepts a licence for the user: it stops
-    // and says which one, unless the user writes --acepto (I accept) themselves.
-    let agreed = a.iter().any(|x| x == "--acepto");
-    let a: Vec<String> = a.iter().filter(|x| *x != "--acepto").cloned().collect();
+    // and says which one, unless the user writes --accept themselves (--acepto, the
+    // flag's first Spanish name, still works).
+    let agreed = a.iter().any(|x| x == "--accept" || x == "--acepto");
+    let a: Vec<String> = a.iter().filter(|x| *x != "--accept" && *x != "--acepto").cloned().collect();
     let terms = |key: &str, what: &str| -> bool {
         if one_side::legal::accepted(key) {
             return true;
@@ -38,20 +39,20 @@ fn cli() -> Option<i32> {
             "microsoft" => " (https://visualstudio.microsoft.com/license-terms/)",
             _ => "",
         };
-        eprintln!("{what}: se instala sin mostrar su asistente. Lee sus condiciones{url} y, si las aceptas, repite la orden con --acepto.");
+        eprintln!("{what} installs without showing its own installer. Read its terms{url} and, if you accept them, run the command again with --accept.");
         false
     };
     match a.get(1).map(String::as_str) {
         Some("-h" | "--help") => {
-            println!("One-Side: la interfaz es One-Side.app. Este es su ayudante de línea de comandos.\n");
-            println!("  --play <botella> <juego>              Abre un juego de la biblioteca (lo usan los accesos del Dock)");
-            println!("  --install <tienda>                    Instala una tienda: {}", STORES.iter().map(|s| s.id).collect::<Vec<_>>().join(", "));
-            println!("  --install-app wt:<verbo> <nombre>     Instala una aplicación de winetricks en su propia botella");
-            println!("  --install-app lutris:<slug> <nombre>  Instala con un instalador de la comunidad de Lutris");
-            println!("  --install-app file:<ruta> <nombre>    Instala desde tu propio .exe o .msi");
-            println!("  --winetricks <botella> <verbos…>      Instala dependencias en una botella");
-            println!("  --acepto                              Aceptas las condiciones de lo que se instala sin asistente");
-            println!("  -h, --help                            Esta ayuda");
+            println!("One-Side: the app is One-Side.app. This is its command-line helper.\n");
+            println!("  --play <bottle> <game>                Starts a game from the library (Dock shortcuts use this)");
+            println!("  --install <store>                     Installs a store: {}", STORES.iter().map(|s| s.id).collect::<Vec<_>>().join(", "));
+            println!("  --install-app wt:<verb> <name>        Installs a winetricks app in its own bottle");
+            println!("  --install-app lutris:<slug> <name>    Installs with a Lutris community installer");
+            println!("  --install-app file:<path> <name>      Installs from your own .exe or .msi");
+            println!("  --winetricks <bottle> <verbs…>        Installs dependencies in a bottle");
+            println!("  --accept                              You accept the terms of what installs without its own installer");
+            println!("  -h, --help                            This help");
             Some(0)
         }
         // The installer page's flow without the window: --install-app wt:7zip "7-Zip"
@@ -80,7 +81,7 @@ fn cli() -> Option<i32> {
                     }
                 };
                 let Some(r) = offer.recipe else {
-                    eprintln!("Lutris no tiene instalador de Wine para {slug} (Steam: {:?})", offer.steam);
+                    eprintln!("Lutris has no Wine installer for {slug} (Steam: {:?})", offer.steam);
                     return Some(1);
                 };
                 install::spawn_install_recipe(r, name.clone(), None, Default::default(), h.clone());
@@ -101,14 +102,14 @@ fn cli() -> Option<i32> {
                     None => {
                         let m = s.message.take().unwrap_or_default();
                         println!("{m}");
-                        return Some(if m.contains("Ya está en tu biblioteca") { 0 } else { 1 });
+                        return Some(if m.contains("in your library") { 0 } else { 1 });
                     }
                 }
             }
         }
         Some("--install") => {
             let Some(store) = stores::find(a.get(2).map(String::as_str)) else {
-                eprintln!("tiendas: {}", STORES.iter().map(|s| s.id).collect::<Vec<_>>().join(", "));
+                eprintln!("stores: {}", STORES.iter().map(|s| s.id).collect::<Vec<_>>().join(", "));
                 return Some(2);
             };
             if store.silent.is_some() && !terms(&format!("store.{}", store.id), store.name) {
@@ -123,10 +124,10 @@ fn cli() -> Option<i32> {
                 let now = match s.installs.get(store.id) {
                     None if s.dirty => break,
                     None => "…".to_owned(),
-                    Some(State::Downloading(_)) => "descargando".into(),
-                    Some(State::Preparing) => "preparando botella".into(),
-                    Some(State::Installing) => "instalando".into(),
-                    Some(State::WaitingForUser) => "esperando al instalador".into(),
+                    Some(State::Downloading(_)) => "downloading".into(),
+                    Some(State::Preparing) => "preparing the bottle".into(),
+                    Some(State::Installing) => "installing".into(),
+                    Some(State::WaitingForUser) => "waiting for the installer".into(),
                     Some(State::Failed(m)) => {
                         eprintln!("ERROR: {m}");
                         return Some(1);
@@ -145,7 +146,7 @@ fn cli() -> Option<i32> {
             let (Some(bottle), Some(key)) = (a.get(2), a.get(3)) else { return Some(2) };
             let games = library::scan(&Bottle::load_all());
             let Some(g) = games.iter().find(|g| &g.bottle == bottle && &g.key == key) else {
-                eprintln!("No encuentro el juego {key} en {bottle}");
+                eprintln!("Can't find the game {key} in {bottle}");
                 return Some(1);
             };
             match install::play(g, &games, &FixDb::load(), &report) {
@@ -163,7 +164,7 @@ fn cli() -> Option<i32> {
         }
         Some("--update-fixes") => match fixes::update() {
             Ok(db) => {
-                println!("OK {} arreglos, {} nombres de tienda, {} juegos en highball-db", db.count(), db.umu.len(), db.compat_count());
+                println!("OK {} fixes, {} store names, {} games in highball-db", db.count(), db.umu.len(), db.compat_count());
                 Some(0)
             }
             Err(e) => {
@@ -175,7 +176,7 @@ fn cli() -> Option<i32> {
             let p = PathBuf::from(a.get(2)?);
             match auto::analyze(&p) {
                 Some(x) => println!("{} | apis {:?}", x.summary(false), x.apis),
-                None => println!("no es un ejecutable de Windows"),
+                None => println!("not a Windows executable"),
             }
             Some(0)
         }
@@ -183,7 +184,7 @@ fn cli() -> Option<i32> {
             let db = FixDb::load();
             match db.find(a.get(2)?, a.get(3)?) {
                 Some(f) => println!("{} | {}", f.title, f.describe()),
-                None => println!("sin arreglo"),
+                None => println!("no fix"),
             }
             Some(0)
         }
@@ -191,7 +192,7 @@ fn cli() -> Option<i32> {
             let db = FixDb::load();
             match db.compat(a.get(2)?, a.get(3).map_or("", |s| s.as_str()), a.get(4).map_or("", |s| s.as_str())) {
                 Some(c) => println!("{} | {} | {} | {}", c.title, c.label(), c.renderer_note().unwrap_or_default(), c.notes),
-                None => println!("sin datos"),
+                None => println!("no data"),
             }
             Some(0)
         }
@@ -205,14 +206,14 @@ fn cli() -> Option<i32> {
             let n = native::get();
             for k in native::Kind::ALL {
                 let flow = n.login_flow(k).map(|f| f.url).unwrap_or_default();
-                println!("{}: sesión={:?} juegos={} login={}", k.name(), n.user(k), n.games(k).len(), flow);
+                println!("{}: user={:?} games={} login={}", k.name(), n.user(k), n.games(k).len(), flow);
             }
             Some(0)
         }
         Some("--winetricks") => {
             let b = Bottle::load(a.get(2)?)?;
             for owner in one_side::legal::missing_for_verbs(&a[3..]) {
-                let who = match owner { "microsoft" => "Componentes de Microsoft", "nvidia" => "NVIDIA PhysX", _ => "Componentes de terceros" };
+                let who = match owner { "microsoft" => "Microsoft components", "nvidia" => "NVIDIA PhysX", _ => "Third-party components" };
                 if !terms(owner, who) {
                     return Some(3);
                 }
@@ -247,7 +248,7 @@ fn main() -> Result<(), String> {
         std::process::exit(code);
     }
     let _ = tools::ensure();
-    eprintln!("One-Side: la interfaz es One-Side.app. Este programa es su ayudante de línea de comandos.");
+    eprintln!("One-Side: the app is One-Side.app. This program is its command-line helper.");
     Ok(())
 }
 

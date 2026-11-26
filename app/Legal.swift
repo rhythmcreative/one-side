@@ -1,5 +1,5 @@
-// Everything legal the user can see: About One-Side (licence, third-party notices,
-// trademarks, privacy) and the prompt to accept someone else's licence before
+// Everything legal the user can see: About One-Side (license, third-party notices,
+// trademarks, privacy) and the prompt to accept someone else's license before
 // One-Side installs it without its own installer.
 
 import AppKit
@@ -17,7 +17,7 @@ func legalFile(_ name: String) -> URL? {
 }
 
 func legalText(_ name: String) -> String {
-    legalFile(name).flatMap { try? String(contentsOf: $0, encoding: .utf8) } ?? "No se encuentra \(name)."
+    legalFile(name).flatMap { try? String(contentsOf: $0, encoding: .utf8) } ?? "\(name) is missing."
 }
 
 var appVersion: String { Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "dev" }
@@ -30,10 +30,10 @@ struct AboutView: View {
     var body: some View {
         VStack(spacing: 0) {
             Picker("", selection: $page) {
-                Text("Acerca de").tag("acerca")
-                Text("Privacidad").tag("privacidad")
-                Text("Licencia").tag("licencia")
-                Text("Licencias de terceros").tag("terceros")
+                Text("About").tag("acerca")
+                Text("Privacy").tag("privacidad")
+                Text("License").tag("licencia")
+                Text("Third-Party Licenses").tag("terceros")
             }
             .pickerStyle(.segmented).labelsHidden().padding(14)
             Divider()
@@ -52,19 +52,19 @@ struct AboutView: View {
             VStack(spacing: 14) {
                 Image(nsImage: appIcon()).resizable().frame(width: 88, height: 88)
                 Text("One-Side").font(.largeTitle.bold())
-                Text("Versión \(appVersion) · Software libre con licencia MIT\n© 2026 Los autores de One-Side")
+                Text("Version \(appVersion) · Free software under the MIT License\n© 2026 The One-Side authors")
                     .multilineTextAlignment(.center).font(.callout).foregroundStyle(.secondary)
                 if let u = Bundle.main.url(forResource: "PUBLISHER", withExtension: "txt"), let t = try? String(contentsOf: u, encoding: .utf8) {
                     Text(t.split(separator: "\n").filter { !$0.hasPrefix("#") }.joined(separator: "\n"))
                         .font(.caption).foregroundStyle(.secondary).multilineTextAlignment(.center)
                 }
                 VStack(alignment: .leading, spacing: 12) {
-                    fact("cpu", "Motor de juegos", "Los juegos funcionan con Mach9, que reúne Wine, DXMT, vkd3d-proton, FEX y Mesa. One-Side lo descarga de sus autores y no lo modifica. Su código fuente es libre: github.com/athei/mach9.")
-                    fact("tag", "Marcas", "One-Side no está afiliado a Valve, Epic Games, GOG, Electronic Arts, Ubisoft, Blizzard, Rockstar Games, Amazon, itch.io, Lutris, Highball, Microsoft, Apple ni CodeWeavers, ni cuenta con su aprobación. Sus nombres y logotipos son marcas de sus dueños y aquí solo indican con qué es compatible One-Side.")
-                    fact("photo", "Imágenes de los juegos", "Las portadas e iconos son de sus editoras. Se descargan de Steam solo para mostrarlos en tu biblioteca y se guardan en tu Mac.")
-                    fact("hand.raised", "Privacidad", "One-Side no tiene cuentas, servidores ni analítica, y no envía datos tuyos a nadie. Todo se guarda en tu Mac.")
-                    fact("doc.text", "Licencias de lo que instalas", "Cada tienda, juego o programa tiene su propia licencia. Si One-Side lo instala sin mostrar su asistente, antes te enseña sus condiciones para que las aceptes tú.")
-                    fact("exclamationmark.shield", "Sin garantía", "One-Side se ofrece tal cual, sin garantías. Usa los juegos y servicios de cada tienda según sus condiciones.")
+                    fact("cpu", "Game engines", "Games run on Mach9 (Wine, DXMT, vkd3d-proton, FEX and Mesa) or on MetalSharp Wine with Apple's D3DMetal. One-Side downloads them from their authors and doesn't change them. Their source code is open: github.com/athei/mach9 and github.com/metalsharp/MetalSharp-Wine.")
+                    fact("tag", "Trademarks", "One-Side isn't affiliated with or endorsed by Valve, Epic Games, GOG, Electronic Arts, Ubisoft, Blizzard, Rockstar Games, Amazon, itch.io, Lutris, Highball, Microsoft, Apple, AMD, NVIDIA or CodeWeavers. Their names and logos belong to their owners and are only used here to say what One-Side works with.")
+                    fact("photo", "Game art", "Covers and icons belong to their publishers. They're downloaded from Steam only to show them in your library, and they stay on your Mac.")
+                    fact("hand.raised", "Privacy", "One-Side has no accounts, servers or analytics, and never sends your data anywhere. Everything stays on your Mac.")
+                    fact("doc.text", "Licenses of what you install", "Every store, game and program has its own license. If One-Side installs one without showing its installer, it shows you the terms first so you can accept them yourself.")
+                    fact("exclamationmark.shield", "No warranty", "One-Side is provided as is, without warranty. Use each store's games and services according to its terms.")
                 }
                 .padding(.top, 6)
             }
@@ -107,7 +107,7 @@ struct LegalTextView: NSViewRepresentable {
 struct AboutMenuButton: View {
     @Environment(\.openWindow) private var openWindow
     var body: some View {
-        Button("Acerca de One-Side") { openWindow(id: "about") }
+        Button("About One-Side") { openWindow(id: "about") }
     }
 }
 
@@ -123,11 +123,11 @@ struct TermsPrompt: ViewModifier {
                        without: t.without.map { w in { core.pendingTerms = nil; core.send(w.command) } },
                        cancel: { core.pendingTerms = nil })
         }
-        .alert(core.compatWarning.map { "\($0.game.name) no funciona en Mac" } ?? "",
+        .alert(core.compatWarning.map { "\($0.game.name) doesn't work on Mac" } ?? "",
                isPresented: Binding(get: { core.compatWarning != nil }, set: { if !$0 { core.compatWarning = nil } }),
                presenting: core.compatWarning) { w in
-            Button(w.download ? "Descargar igualmente" : "Intentarlo igualmente") { core.compatWarning = nil; core.tryAnyway(w) }
-            Button("Cancelar", role: .cancel) { core.compatWarning = nil }
+            Button(w.download ? "Download Anyway" : "Try Anyway") { core.compatWarning = nil; core.tryAnyway(w) }
+            Button("Cancel", role: .cancel) { core.compatWarning = nil }
         } message: { w in
             Text(compatMessage(w.game))
         }
@@ -136,11 +136,11 @@ struct TermsPrompt: ViewModifier {
 
 func compatMessage(_ g: Game) -> String {
     let ac = g.compat?.anticheat ?? []
-    let why = ac.isEmpty ? (g.compat?.label ?? "") : "Usa \(ac.joined(separator: ", ")), un antitrampas que funciona dentro del sistema de Windows y no existe en Wine."
-    return "\(why) Ni One-Side ni CrossOver pueden hacerlo funcionar. Dato de highball-db."
+    let why = ac.isEmpty ? (g.compat?.label ?? "") : "It uses \(ac.joined(separator: ", ")), an anti-cheat that runs inside the Windows kernel and doesn't exist in Wine."
+    return "\(why) Neither One-Side nor CrossOver can make it work. Source: highball-db."
 }
 
-/// The licence to accept, with its official link; nothing is accepted by default.
+/// The license to accept, with its official link; nothing is accepted by default.
 struct TermsSheet: View {
     let terms: PendingTerms
     let accept: () -> Void
@@ -156,13 +156,13 @@ struct TermsSheet: View {
             Text(terms.message).fixedSize(horizontal: false, vertical: true)
             if let url = terms.url {
                 Link(destination: url) {
-                    Label("Leer las condiciones (\(url.host() ?? url.absoluteString))", systemImage: "arrow.up.right.square")
+                    Label("Read the Terms (\(url.host() ?? url.absoluteString))", systemImage: "arrow.up.right.square")
                 }
             }
-            Text("Solo se te pregunta una vez. Puedes ver lo que has aceptado en Ajustes › Legal.")
+            Text("You're only asked once. You can see what you've accepted in Settings › Legal.")
                 .font(.caption).foregroundStyle(.secondary)
             HStack {
-                Button("Cancelar", role: .cancel, action: cancel).keyboardShortcut(.cancelAction)
+                Button("Cancel", role: .cancel, action: cancel).keyboardShortcut(.cancelAction)
                 Spacer()
                 if let without, let label = terms.without?.label { Button(label, action: without) }
                 Button(terms.accept, action: accept).buttonStyle(.borderedProminent)

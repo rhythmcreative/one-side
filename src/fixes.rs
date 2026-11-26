@@ -33,7 +33,7 @@ impl Fix {
     pub fn describe(&self) -> String {
         let mut p = vec![];
         if !self.verbs.is_empty() {
-            p.push(format!("instala {}", self.verbs.join(", ")));
+            p.push(format!("installs {}", self.verbs.join(", ")));
         }
         if !self.dlls.is_empty() {
             p.push(format!("DLL {}", self.dlls.iter().map(|(d, o)| format!("{d}={o}")).collect::<Vec<_>>().join(" ")));
@@ -62,6 +62,11 @@ pub struct FixDb {
 
 fn db_path() -> PathBuf {
     engine::support().join("fixes.json")
+}
+
+/// The fixes and compatibility data are missing or older than `age`.
+pub fn is_stale(age: std::time::Duration) -> bool {
+    fs::metadata(db_path()).and_then(|m| m.modified()).ok().and_then(|t| t.elapsed().ok()).is_none_or(|e| e > age)
 }
 
 impl FixDb {
@@ -164,7 +169,7 @@ pub fn update() -> Result<FixDb, String> {
     let cache = engine::support().join("cache");
     fs::create_dir_all(&cache).map_err(|e| e.to_string())?;
     let tgz = cache.join("umu-protonfixes.tar.gz");
-    let mut body = crate::http_get(TARBALL).call().map_err(|e| format!("No se pudo bajar umu-protonfixes: {e}"))?.into_body();
+    let mut body = crate::http_get(TARBALL).call().map_err(|e| format!("Couldn't download umu-protonfixes: {e}"))?.into_body();
     let bytes = body.with_config().limit(200 << 20).read_to_vec().map_err(|e| e.to_string())?;
     fs::write(&tgz, bytes).map_err(|e| e.to_string())?;
     let out = cache.join("umu-protonfixes");
@@ -178,11 +183,11 @@ pub fn update() -> Result<FixDb, String> {
         .status()
         .map_err(|e| e.to_string())?;
     if !st.success() {
-        return Err("No se pudo descomprimir umu-protonfixes".into());
+        return Err("Couldn't unpack umu-protonfixes".into());
     }
     let mut db = FixDb { fixes: parse_tree(&out), ..FixDb::default() };
 
-    let mut body = crate::http_get(CSV).call().map_err(|e| format!("No se pudo bajar umu-database: {e}"))?.into_body();
+    let mut body = crate::http_get(CSV).call().map_err(|e| format!("Couldn't download umu-database: {e}"))?.into_body();
     let csv = body.with_config().limit(50 << 20).read_to_string().map_err(|e| e.to_string())?;
     for line in csv.lines().skip(1) {
         let cols: Vec<&str> = line.split(',').collect();
@@ -201,19 +206,17 @@ pub fn update() -> Result<FixDb, String> {
         .duration_since(std::time::UNIX_EPOCH)
         .map(|d| d.as_secs().to_string())
         .unwrap_or_default();
-    let tmp = db_path().with_extension("json.tmp");
-    fs::write(&tmp, serde_json::to_vec(&db).map_err(|e| e.to_string())?).map_err(|e| e.to_string())?;
-    fs::rename(&tmp, db_path()).map_err(|e| e.to_string())?;
+    crate::write_atomic(&db_path(), &serde_json::to_vec(&db).map_err(|e| e.to_string())?).map_err(|e| e.to_string())?;
     Ok(db)
 }
 
 fn get_json(url: &str) -> Result<serde_json::Value, String> {
-    let mut body = crate::http_get(url).call().map_err(|e| format!("No se pudo bajar {url}: {e}"))?.into_body();
+    let mut body = crate::http_get(url).call().map_err(|e| format!("Couldn't download {url}: {e}"))?.into_body();
     let text = body.with_config().limit(50 << 20).read_to_string().map_err(|e| e.to_string())?;
     serde_json::from_str(&text).map_err(|e| e.to_string())
 }
 
 fn fetch_compat() -> Result<HashMap<String, Compat>, String> {
     let m = compat::parse(&get_json(compat::GAMES)?, &get_json(compat::ANTICHEAT)?);
-    if m.is_empty() { Err("highball-db vacía".into()) } else { Ok(m) }
+    if m.is_empty() { Err("highball-db came back empty".into()) } else { Ok(m) }
 }

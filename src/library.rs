@@ -66,7 +66,8 @@ fn vdf(key: &str, text: &str) -> Vec<String> {
         .collect()
 }
 
-fn steam(b: &Bottle) -> Vec<Game> {
+/// The `steamapps` folders of the bottle's Steam: its own and any other library.
+pub fn steam_libraries(b: &Bottle) -> Vec<PathBuf> {
     let Some(exe) = b.config.launcher.as_deref().map(PathBuf::from) else { return vec![] };
     if !exe.file_name().is_some_and(|n| n.eq_ignore_ascii_case("steam.exe")) {
         return vec![];
@@ -76,6 +77,18 @@ fn steam(b: &Bottle) -> Vec<Game> {
     if let Ok(t) = fs::read_to_string(root.join("steamapps/libraryfolders.vdf")) {
         libs.extend(vdf("path", &t).iter().map(|p| b.unix_path(p).join("steamapps")));
     }
+    libs.dedup();
+    libs
+}
+
+/// The value of `key` in a Steam .acf or .vdf text.
+pub fn vdf_value(key: &str, text: &str) -> Option<String> {
+    vdf(key, text).into_iter().next()
+}
+
+fn steam(b: &Bottle) -> Vec<Game> {
+    let Some(exe) = b.config.launcher.as_deref().map(PathBuf::from) else { return vec![] };
+    let libs = steam_libraries(b);
     let mut seen = std::collections::HashSet::new();
     let mut out = vec![];
     for lib in libs {
@@ -225,7 +238,7 @@ pub fn scan(bottles: &[Bottle]) -> Vec<Game> {
         all.extend(b.config.games.iter().enumerate().map(|(i, g)| Game {
             key: format!("custom-{}-{i}", b.id),
             name: g.name.clone(),
-            source: "Propio",
+            source: "Custom",
             bottle: b.id.clone(),
             launch: Launch::Exe {
                 path: PathBuf::from(&g.exe),
@@ -249,7 +262,7 @@ pub fn scan(bottles: &[Bottle]) -> Vec<Game> {
         all.push(Game {
             key: format!("launcher-{}", b.id),
             name: b.config.name.clone(),
-            source: "Tienda",
+            source: "Store",
             bottle: b.id.clone(),
             launch: Launch::Exe { path: exe.clone(), args: vec![] },
             custom: None,

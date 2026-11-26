@@ -1,35 +1,37 @@
-# Privacidad en One-Side
+# One-Side privacy
 
-**Resumen: One-Side no recoge ni envía datos personales a sus autores. No tiene
-cuentas propias, ni servidores, ni analítica, ni publicidad.**
+**In short: One-Side doesn't collect personal data or send it to its authors. It has no
+accounts of its own, no servers, no analytics and no ads.**
 
-## Qué se guarda y dónde
-Todo se queda en tu Mac, en `~/Library/Application Support/One-Side`:
-- Las botellas, sus ajustes y los programas que instalas.
-- Una caché de imágenes (portadas, iconos y logotipos).
-- Si inicias sesión en Epic Games o GOG: la sesión que te dan esas tiendas, en la
-  carpeta `irori`, que solo puede leer tu usuario. One-Side nunca ve tu contraseña:
-  el inicio de sesión se hace en la web de cada tienda. «Cerrar sesión» la borra.
+## What's stored, and where
+Everything stays on your Mac, in `~/Library/Application Support/One-Side`:
+- Your bottles, their settings and the programs you install.
+- An image cache (covers, icons and logos).
+- Your settings, such as whether automatic updates are on.
+- If you sign in to Epic Games or GOG: the session those stores give you, in the `irori`
+  folder, which only your user can read. One-Side never sees your password, because you
+  sign in on each store's own website. "Sign Out" deletes the session.
 
-Puedes borrar todo eliminando esa carpeta.
+You can delete all of it by deleting that folder.
 
-## A quién se conecta One-Side
-Solo cuando hace falta para lo que pides, y sin enviar datos tuyos:
+## What One-Side connects to
+Only when it's needed for something you asked for, or for an update check, and without
+sending any data about you:
 
-| Servicio | Para qué | Qué recibe |
+| Service | What for | What it gets |
 |---|---|---|
-| Steam (store.steampowered.com, steamstatic.com) | Buscar portadas e imágenes; descargar el instalador de Steam | El nombre del juego que se busca |
-| GitHub (github.com, githubusercontent.com) | Descargar los motores Mach9 y MetalSharp Wine (D3DMetal), winetricks y la base de arreglos | Nada más que la descarga |
-| Lutris (lutris.net) | Buscar instaladores de la comunidad | El texto que buscas |
-| Highball (gethighball.com) | Descargar su base de compatibilidad en Mac, la misma para todos | Nada más que la descarga |
-| Simple Icons (simpleicons.org) | Logotipos de las tiendas | Nada más que la descarga |
-| Webs oficiales de cada tienda o programa | Descargar su instalador cuando lo pides | Nada más que la descarga |
-| Epic Games y GOG | Solo si inicias sesión: tu biblioteca y las descargas | Lo que esas tiendas requieren, según sus propias políticas de privacidad |
+| Steam (store.steampowered.com, steamstatic.com) | Finding covers and images; downloading the Steam installer | The name of the game being looked up |
+| GitHub (github.com, githubusercontent.com) | Downloading One-Side updates, the Mach9 and MetalSharp Wine (D3DMetal) engines, FSR 4, OptiScaler, winetricks and the game fixes, and checking for new versions of them | Only the request itself |
+| Lutris (lutris.net) | Searching community installers | What you type in the search |
+| Highball (gethighball.com) | Downloading its Mac compatibility database, the same for everyone | Only the request itself |
+| Simple Icons (simpleicons.org) | Store logos | Only the request itself |
+| Each store's or program's official website | Downloading its installer when you ask | Only the request itself |
+| Epic Games and GOG | Only if you sign in: your library and your downloads | Whatever those stores need, under their own privacy policies |
 
-Como cualquier conexión a internet, estos servicios ven tu dirección IP. Cada uno
-la trata según su propia política de privacidad.
+Like any internet connection, these services see your IP address. Each one handles it
+under its own privacy policy. Automatic updates can be turned off in Settings › Updates.
 
-## Responsable
-One-Side es software libre que se ejecuta solo en tu equipo. Sus autores no reciben
-ni tratan ningún dato personal tuyo, así que no actúan como responsables del
-tratamiento en el sentido del Reglamento General de Protección de Datos (RGPD).
+## Who's responsible
+One-Side is free software that runs only on your computer. Its authors don't receive or
+process any of your personal data, so they aren't data controllers under the General Data
+Protection Regulation (GDPR).

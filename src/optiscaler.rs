@@ -50,15 +50,15 @@ pub fn installed() -> bool {
 
 /// Downloads the latest release and checks it against the SHA-256 GitHub keeps for it.
 pub fn install(mut report: impl FnMut(String)) -> Result<String, String> {
-    report("Buscando OptiScaler…".into());
+    report("Looking for OptiScaler…".into());
     let mut body = crate::http_get(&format!("https://api.github.com/repos/{REPO}/releases/latest"))
         .header("User-Agent", "one-side")
         .header("Accept", "application/vnd.github+json")
         .call()
-        .map_err(|e| format!("No se pudo consultar GitHub: {e}"))?
+        .map_err(|e| format!("Couldn't reach GitHub: {e}"))?
         .into_body();
     let j: serde_json::Value = serde_json::from_str(&body.read_to_string().map_err(|e| e.to_string())?).map_err(|e| e.to_string())?;
-    let tag = j["tag_name"].as_str().ok_or("Respuesta de GitHub sin versión")?.to_owned();
+    let tag = j["tag_name"].as_str().ok_or("GitHub didn't return a version")?.to_owned();
     let safe: String = tag.chars().map(|c| if c.is_ascii_alphanumeric() || c == '.' || c == '-' { c } else { '_' }).collect();
     if safe == version() && installed() {
         return Ok(tag);
@@ -66,19 +66,19 @@ pub fn install(mut report: impl FnMut(String)) -> Result<String, String> {
     let asset = j["assets"]
         .as_array()
         .and_then(|a| a.iter().find(|a| a["name"].as_str().is_some_and(|n| n.ends_with(".7z"))))
-        .ok_or("La versión de OptiScaler no trae el paquete")?;
+        .ok_or("That OptiScaler release has no package")?;
     let name = asset["name"].as_str().unwrap_or_default().to_owned();
     let url = asset["browser_download_url"].as_str().unwrap_or_default().to_owned();
-    let want = asset["digest"].as_str().and_then(|d| d.strip_prefix("sha256:")).ok_or("GitHub no da la suma SHA-256 de OptiScaler")?.to_lowercase();
+    let want = asset["digest"].as_str().and_then(|d| d.strip_prefix("sha256:")).ok_or("GitHub doesn't list a SHA-256 for OptiScaler")?.to_lowercase();
 
     fs::create_dir_all(downloads_dir()).map_err(|e| e.to_string())?;
     let archive = downloads_dir().join(&name);
-    crate::install::download(&url, &archive, |p| report(format!("Bajando OptiScaler {:.0} %", p * 100.0)))?;
+    crate::install::download(&url, &archive, |p| report(format!("Downloading OptiScaler {:.0}%", p * 100.0)))?;
     let out = Command::new("/usr/bin/shasum").args(["-a", "256"]).arg(&archive).output().map_err(|e| e.to_string())?;
     let got = String::from_utf8_lossy(&out.stdout).split_whitespace().next().unwrap_or_default().to_lowercase();
     if got != want {
         let _ = fs::remove_file(&archive);
-        return Err("La descarga de OptiScaler no coincide con su suma SHA-256".into());
+        return Err("The OptiScaler download doesn't match its SHA-256".into());
     }
     let staging = dir().join(format!("{safe}.unpack"));
     let _ = fs::remove_dir_all(&staging);
@@ -88,13 +88,13 @@ pub fn install(mut report: impl FnMut(String)) -> Result<String, String> {
     let _ = fs::remove_file(&archive);
     if !st.success() || !staging.join("OptiScaler.dll").exists() || !staging.join("OptiScaler.ini").exists() {
         let _ = fs::remove_dir_all(&staging);
-        return Err("El paquete de OptiScaler no es válido".into());
+        return Err("The OptiScaler package is broken".into());
     }
     let dest = dir().join(&safe);
     let _ = fs::remove_dir_all(&dest);
     fs::rename(&staging, &dest).map_err(|e| e.to_string())?;
     let old = version();
-    fs::write(dir().join("VERSION"), &safe).map_err(|e| e.to_string())?;
+    crate::write_atomic(&dir().join("VERSION"), safe.as_bytes()).map_err(|e| e.to_string())?;
     if !old.is_empty() && old != safe {
         let _ = fs::remove_dir_all(dir().join(old));
     }
@@ -133,16 +133,16 @@ fn remove(folder: &Path, m: &Manifest) {
 /// Puts OptiScaler next to `exe` when `on`, takes One-Side's copy away when not.
 /// `Ok(Some(..))` says what changed.
 pub fn sync(exe: &Path, on: bool) -> Result<Option<String>, String> {
-    let folder = exe.parent().ok_or("El juego no tiene carpeta")?;
+    let folder = exe.parent().ok_or("The game has no folder")?;
     let had = manifest(folder);
     if !on {
         return Ok(had.map(|m| {
             remove(folder, &m);
-            "OptiScaler quitado".to_owned()
+            "Removed OptiScaler".to_owned()
         }));
     }
     if !installed() {
-        return Err("OptiScaler no está instalado".into());
+        return Err("OptiScaler isn't installed".into());
     }
     if let Some(m) = &had {
         if m.version == version() && folder.join(&m.dll).exists() {
@@ -150,19 +150,19 @@ pub fn sync(exe: &Path, on: bool) -> Result<Option<String>, String> {
         }
         remove(folder, m);
     } else if folder.join("OptiScaler.ini").exists() {
-        return Err("El juego ya tiene su propio OptiScaler; One-Side no lo toca".into());
+        return Err("The game already has its own OptiScaler, so One-Side leaves it alone".into());
     }
     let dll = PROXIES
         .iter()
         .find(|n| !folder.join(n).exists())
-        .ok_or("La carpeta del juego ya usa dxgi.dll, winmm.dll y version.dll")?;
+        .ok_or("The game's folder already has dxgi.dll, winmm.dll and version.dll")?;
     let src = current();
     let template = fs::read_to_string(src.join("OptiScaler.ini")).map_err(|e| e.to_string())?;
     fs::copy(src.join("OptiScaler.dll"), folder.join(dll)).map_err(|e| e.to_string())?;
     fs::write(folder.join("OptiScaler.ini"), ini(&template)).map_err(|e| e.to_string())?;
     let m = Manifest { version: version(), dll: (*dll).to_owned() };
-    fs::write(folder.join(MANIFEST), serde_json::to_string(&m).unwrap()).map_err(|e| e.to_string())?;
-    Ok(Some(format!("OptiScaler {} como {dll}", m.version)))
+    crate::write_atomic(&folder.join(MANIFEST), serde_json::to_string(&m).unwrap().as_bytes()).map_err(|e| e.to_string())?;
+    Ok(Some(format!("OptiScaler {} as {dll}", m.version)))
 }
 
 #[cfg(test)]

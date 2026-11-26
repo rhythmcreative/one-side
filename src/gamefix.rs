@@ -71,7 +71,7 @@ fn patch(exe: &Path, p: &Patch) -> Result<bool, String> {
     let data = fs::read(exe).map_err(|e| e.to_string())?;
     let hits = matches(&data, p);
     let [i] = hits[..] else {
-        return Err(format!("{}: {} sitios coinciden, no se toca", p.what, hits.len()));
+        return Err(format!("{}: {} places match, so nothing is changed", p.what, hits.len()));
     };
     let pos = i + p.at;
     if data[pos] == p.to {
@@ -110,8 +110,7 @@ fn set_line(file: &Path, key: &str, value: &str) -> Result<bool, String> {
     if new == old {
         return Ok(false);
     }
-    fs::create_dir_all(file.parent().unwrap()).map_err(|e| e.to_string())?;
-    fs::write(file, new).map_err(|e| e.to_string())?;
+    crate::write_atomic(file, new.as_bytes()).map_err(|e| e.to_string())?;
     Ok(true)
 }
 
@@ -125,8 +124,7 @@ fn set_env(file: &Path, name: &str, value: &str) -> Result<bool, String> {
     if new == old {
         return Ok(false);
     }
-    fs::create_dir_all(file.parent().unwrap()).map_err(|e| e.to_string())?;
-    fs::write(file, new).map_err(|e| e.to_string())?;
+    crate::write_atomic(file, new.as_bytes()).map_err(|e| e.to_string())?;
     Ok(true)
 }
 

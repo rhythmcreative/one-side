@@ -17,7 +17,7 @@ pub const COMMON_VERBS: &[(&str, &str)] = &[
     ("d3dx9", "DirectX 9 (d3dx9)"),
     ("d3dcompiler_47", "d3dcompiler_47"),
     ("dotnet48", ".NET Framework 4.8"),
-    ("corefonts", "Fuentes de Windows"),
+    ("corefonts", "Windows fonts"),
     ("xact", "XAudio / XACT"),
     ("physx", "PhysX"),
 ];
@@ -26,15 +26,32 @@ pub fn dir() -> PathBuf {
     engine::support().join("tools")
 }
 
+pub fn winetricks_path() -> PathBuf {
+    dir().join("winetricks")
+}
+
+/// Downloads the current winetricks; `Ok(true)` when it changed.
+pub fn update_winetricks() -> Result<bool, String> {
+    let wt = winetricks_path();
+    let mut body = crate::http_get(WINETRICKS_URL).call().map_err(|e| format!("Could not download winetricks: {e}"))?.into_body();
+    let text = body.read_to_string().map_err(|e| e.to_string())?;
+    if !text.starts_with("#!") || !text.contains("w_metadata") {
+        return Err("The winetricks download is not valid".into());
+    }
+    let changed = fs::read_to_string(&wt).ok().as_deref() != Some(text.as_str());
+    // Always rewritten, so its date says when it was last checked.
+    crate::write_atomic(&wt, text.as_bytes()).map_err(|e| e.to_string())?;
+    use std::os::unix::fs::PermissionsExt;
+    let _ = fs::set_permissions(&wt, fs::Permissions::from_mode(0o755));
+    Ok(changed)
+}
+
 /// Puts winetricks and the cabextract link in place.
 pub fn ensure() -> Result<(), String> {
     let d = dir();
     fs::create_dir_all(&d).map_err(|e| e.to_string())?;
-    let wt = d.join("winetricks");
-    if !wt.exists() {
-        let mut body = crate::http_get(WINETRICKS_URL).call().map_err(|e| format!("No se pudo bajar winetricks: {e}"))?.into_body();
-        let text = body.read_to_string().map_err(|e| e.to_string())?;
-        fs::write(&wt, text).map_err(|e| e.to_string())?;
+    if !winetricks_path().exists() {
+        update_winetricks()?;
     }
     let cab = d.join("cabextract");
     let me = crate::helper_exe();
@@ -64,7 +81,7 @@ pub fn winetricks(b: &Bottle, verbs: &[String]) -> Result<(), String> {
         .current_dir(b.dir());
     b.log_to(&mut c, &format!("winetricks {}", verbs.join(" ")));
     let st = c.status().map_err(|e| e.to_string())?;
-    if st.success() { Ok(()) } else { Err(format!("winetricks {} terminó con error (mira el registro)", verbs.join(" "))) }
+    if st.success() { Ok(()) } else { Err(format!("winetricks {} failed (see the log)", verbs.join(" "))) }
 }
 
 // ------------------------------------------------------------------ cabextract
@@ -130,7 +147,7 @@ fn open_cab(data: Vec<u8>) -> io::Result<cab::Cabinet<io::Cursor<Vec<u8>>>> {
         }
         at = off + 4;
     }
-    Err(io::Error::new(io::ErrorKind::InvalidData, "no contiene ningún cabinet"))
+    Err(io::Error::new(io::ErrorKind::InvalidData, "has no cabinet in it"))
 }
 
 fn extract(cab: &Path, dir: &Path, filters: &[String], lower: bool, list: bool, quiet: bool) -> io::Result<()> {

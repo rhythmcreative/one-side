@@ -1,4 +1,4 @@
-// "Instalar una aplicación de Windows": popular applications with their
+// "Install a Windows App": popular applications with their
 // stars, a search that also asks Lutris, and a details page that says what will
 // happen, each line with its Edit.
 
@@ -25,18 +25,18 @@ struct CatalogView: View {
         let apps = core.state?.apps ?? []
         ScrollView {
             VStack(alignment: .leading, spacing: 18) {
-                Text("Instalar una aplicación de Windows").font(.largeTitle.bold())
+                Text("Install a Windows App").font(.largeTitle.bold())
                 HStack {
-                    Text("Busca arriba cualquier juego o aplicación.").foregroundStyle(.secondary)
+                    Text("Search for any game or app above.").foregroundStyle(.secondary)
                     Spacer()
-                    Text("¿No lo encuentras?").foregroundStyle(.secondary)
-                    Button("Instalar una aplicación que no está en la lista") { core.installPath.append(.unlisted(nil)) }
+                    Text("Can't find it?").foregroundStyle(.secondary)
+                    Button("Install an App That Isn't Listed") { core.installPath.append(.unlisted(nil)) }
                         .buttonStyle(.link)
                 }
                 .font(.callout)
                 Divider()
                 if q.isEmpty {
-                    Text("Aplicaciones populares").font(.title2.weight(.semibold))
+                    Text("Popular Apps").font(.title2.weight(.semibold))
                     PopularStores(stores: stores) { core.installPath.append(.store($0)) }
                 } else {
                     results(q: q, stores: stores, apps: apps)
@@ -45,19 +45,19 @@ struct CatalogView: View {
             .padding(28)
             .frame(maxWidth: .infinity, alignment: .leading)
         }
-        .searchable(text: $query, placement: .toolbar, prompt: "Buscar juegos y aplicaciones")
+        .searchable(text: $query, placement: .toolbar, prompt: "Search games and apps")
         .onSubmit(of: .search) { core.send(["cmd": "lutris_search", "query": query]) }
         .onChange(of: query) { _, v in
             if v.trimmingCharacters(in: .whitespaces).count >= 2 { core.send(["cmd": "lutris_search", "query": v]) }
         }
-        .navigationTitle("Instalar")
+        .navigationTitle("Install")
     }
 
     @ViewBuilder
     func results(q: String, stores: [StoreItem], apps: [WinApp]) -> some View {
         let lut = core.state?.lutris
         let current = lut?.query.lowercased() == q
-        Text("Resultados").font(.title2.weight(.semibold))
+        Text("Results").font(.title2.weight(.semibold))
         TwoColumns {
             ForEach(stores.filter { $0.name.lowercased().contains(q) }) { s in
                 CatalogRow(title: s.name, rating: s.rating, tile: s.tile, round: true) { core.installPath.append(.store(s.index)) }
@@ -67,14 +67,14 @@ struct CatalogView: View {
             }
             if current {
                 ForEach(lut?.results ?? []) { r in
-                    CatalogRow(title: r.name, rating: nil, subtitle: "Comunidad de Lutris" + (r.year.map { " · \($0)" } ?? ""), tile: r.cover, round: false, cover: true) {
+                    CatalogRow(title: r.name, rating: nil, subtitle: "Lutris community" + (r.year.map { " · \($0)" } ?? ""), tile: r.cover, round: false, cover: true) {
                         core.installPath.append(.lutris(r))
                     }
                 }
             }
         }
         if !current || lut?.busy == true {
-            HStack { ProgressView().controlSize(.small); Text("Buscando también en los instaladores de la comunidad (Lutris)…") }
+            HStack { ProgressView().controlSize(.small); Text("Also searching the Lutris community installers…") }
                 .foregroundStyle(.secondary).font(.callout)
         } else if let e = lut?.error {
             Label(e, systemImage: "exclamationmark.triangle").foregroundStyle(.orange)
@@ -149,7 +149,7 @@ struct DetailView: View {
         ScrollView {
             VStack(alignment: .leading, spacing: 18) {
                 header
-                Text("Detalles").font(.title2.weight(.semibold))
+                Text("Details").font(.title2.weight(.semibold))
                 VStack(alignment: .leading, spacing: 14) { lines }
             }
             .padding(28)
@@ -165,12 +165,12 @@ struct DetailView: View {
     var app: WinApp? { if case .app(let v) = item { return core.state?.apps.first { $0.verb == v } }; return nil }
     var lutris: LutrisResult? { if case .lutris(let r) = item { return r }; return nil }
     var offer: Offer? { lutris.flatMap { core.state?.lutris.offers[$0.slug] } }
-    var title: String { store?.name ?? app?.title ?? lutris?.name ?? "Aplicación que no está en la lista" }
+    var title: String { store?.name ?? app?.title ?? lutris?.name ?? "Unlisted App" }
     var jobKey: String { store.map { _ in "store" } ?? "install" }
     var task: String? { store?.state ?? core.state?.tasks["install"] }
 
     func prepare() {
-        name = title == "Aplicación que no está en la lista" ? "" : title
+        name = title == "Unlisted App" ? "" : title
         if case .unlisted(let u) = item, let u { files["installer"] = u; name = prettyName(u) }
         if let b = core.pendingBottle { bottle = b; core.pendingBottle = nil }
         if let l = lutris { core.send(["cmd": "lutris_offer", "slug": l.slug]) }
@@ -206,11 +206,11 @@ struct DetailView: View {
     }
 
     var origin: String {
-        if store?.key == "steam" || app?.verb == "7zip" { return "Probado con One-Side y el motor Mach9 \(core.state?.engine.version ?? "")." }
+        if store?.key == "steam" || app?.verb == "7zip" { return "Tested with One-Side." }
         if store != nil { return store!.note }
-        if app != nil { return "Se descarga de su web oficial (receta de winetricks)." }
-        if lutris != nil { return "Instalador de la comunidad de Lutris." }
-        return "Con su propio instalador, en una botella nueva."
+        if app != nil { return "Downloaded from its official website (winetricks recipe)." }
+        if lutris != nil { return "Lutris community installer." }
+        return "With its own installer, in a new bottle."
     }
 
     @ViewBuilder var actions: some View {
@@ -218,12 +218,13 @@ struct DetailView: View {
             HStack { ProgressView().controlSize(.small).tint(.white); Text(t).font(.callout.weight(.medium)).foregroundStyle(.white) }
         }
         if let s = store, s.installed, let b = s.bottle {
-            PillButton(title: "Ver su botella", symbol: "shippingbox", tint: brandColor) { core.section = .bottle(b) }
-            PillButton(title: "Reinstalar", tint: brandColor) { install() }.disabled(task != nil)
+            PillButton(title: "Show Its Bottle", symbol: "shippingbox", tint: brandColor) { core.section = .bottle(b) }
+            PillButton(title: "Reinstall", tint: brandColor) { install() }.disabled(task != nil)
         } else if canInstall {
-            PillButton(title: "Instalar", symbol: "arrow.down", tint: brandColor) { install() }
+            PillButton(title: "Install", symbol: "arrow.down", tint: brandColor) { install() }
                 .keyboardShortcut(.defaultAction)
                 .disabled(task != nil || !(core.state?.engine.installed ?? false))
+                .help((core.state?.engine.installed ?? false) ? "" : "One-Side is still downloading its game engine. This only happens the first time.")
         }
     }
 
@@ -262,93 +263,93 @@ struct DetailView: View {
             if let acc = s.account {
                 accountLine(s, acc)
                 Picker("", selection: $launcher) {
-                    Text("Sin launcher (recomendado)").tag(false)
-                    Text("Instalar su launcher de Windows").tag(true)
+                    Text("Without Launcher (Recommended)").tag(false)
+                    Text("Install Its Windows Launcher").tag(true)
                 }
                 .pickerStyle(.segmented).labelsHidden().frame(maxWidth: 420)
             }
             if s.account == nil || launcher {
-                DetailLine(ok: true, text: files["installer"].map { "Usará tu instalador: \($0.lastPathComponent)" } ?? "One-Side descargará el instalador de \(s.url)") {
-                    Button("Editar…") { if let u = pickFile("Elige el instalador que ya tienes", types: ["exe", "msi"]) { files["installer"] = u } }
+                DetailLine(ok: true, text: files["installer"].map { "Uses your installer: \($0.lastPathComponent)" } ?? "One-Side downloads the installer from \(s.url)") {
+                    Button("Edit…") { if let u = pickFile("Choose the installer you already have", types: ["exe", "msi"]) { files["installer"] = u } }
                 }
-                DetailLine(ok: true, text: s.bottleName.map { "Se instala en su botella «\($0)»." } ?? "One-Side creará una botella nueva de Windows 10 de 64 bits llamada «\(s.name)».")
-                DetailLine(ok: !s.experimental, text: s.silent ? "Se instala sola, sin ventanas." : "Se abre su instalador: sigue sus pasos.")
-                DetailLine(ok: true, text: "Sus juegos aparecerán en tu biblioteca, con portada.")
-                if let st = s.state, st.hasPrefix("Falló") || st.hasPrefix("Sigue") {
-                    Button("Ya terminé de instalar") { core.send(["cmd": "rescan_store", "index": s.index]) }
+                DetailLine(ok: true, text: s.bottleName.map { "Installs in its bottle, “\($0)”." } ?? "One-Side makes a new 64-bit Windows 10 bottle called “\(s.name)”.")
+                DetailLine(ok: !s.experimental, text: s.silent ? "Installs on its own, no windows to click through." : "Its installer opens: follow its steps.")
+                DetailLine(ok: true, text: "Its games show up in your library with their covers.")
+                if let st = s.state, st.hasPrefix("Failed") || st.hasPrefix("Follow") {
+                    Button("I'm Done Installing") { core.send(["cmd": "rescan_store", "index": s.index]) }
                 }
             }
         } else if let a = app {
-            DetailLine(ok: true, text: "winetricks descargará \(a.title) de su web oficial.")
+            DetailLine(ok: true, text: "winetricks downloads \(a.title) from its official website.")
             bottleLine
-            DetailLine(ok: true, text: "Se instala sola, sin ventanas.")
-            DetailLine(ok: true, text: "Aparecerá en tu biblioteca con su icono.")
+            DetailLine(ok: true, text: "Installs on its own, no windows to click through.")
+            DetailLine(ok: true, text: "It shows up in your library with its icon.")
         } else if lutris != nil {
             lutrisLines
         } else {
-            DetailLine(ok: files["installer"] != nil, text: files["installer"].map { "Usará el instalador: \($0.lastPathComponent)" } ?? "Elige el instalador de la aplicación (.exe o .msi).") {
-                Button(files["installer"] == nil ? "Elegir…" : "Cambiar…") {
-                    if let u = pickFile("Elige el instalador (.exe o .msi)", types: ["exe", "msi"]) {
+            DetailLine(ok: files["installer"] != nil, text: files["installer"].map { "Uses the installer: \($0.lastPathComponent)" } ?? "Choose the app's installer (.exe or .msi).") {
+                Button(files["installer"] == nil ? "Choose…" : "Change…") {
+                    if let u = pickFile("Choose the installer (.exe or .msi)", types: ["exe", "msi"]) {
                         files["installer"] = u
                         if name.isEmpty { name = prettyName(u) }
                     }
                 }
             }
             bottleLine
-            DetailLine(ok: true, text: "Se abre su instalador: sigue sus pasos.")
-            DetailLine(ok: true, text: "Lo que instale aparecerá en tu biblioteca con su icono y, si es un juego, con su portada.")
+            DetailLine(ok: true, text: "Its installer opens: follow its steps.")
+            DetailLine(ok: true, text: "Whatever it installs shows up in your library with its icon, and with its cover if it's a game.")
         }
     }
 
     @ViewBuilder var lutrisLines: some View {
         if let o = offer {
             if o.loading == true {
-                HStack { ProgressView().controlSize(.small); Text("Leyendo el instalador de Lutris…").foregroundStyle(.secondary) }
+                HStack { ProgressView().controlSize(.small); Text("Reading the Lutris installer…").foregroundStyle(.secondary) }
             } else if let e = o.error {
-                DetailLine(ok: false, text: "No se pudo leer el instalador: \(e)")
+                DetailLine(ok: false, text: "Couldn't read the installer: \(e)")
             } else if let r = o.recipe {
                 if !r.description.isEmpty { Text(r.description).foregroundStyle(.secondary) }
                 ForEach(r.files, id: \.id) { f in
                     if let u = f.url {
-                        DetailLine(ok: true, text: "One-Side descargará \(f.filename) de \(URL(string: u)?.host() ?? u)")
+                        DetailLine(ok: true, text: "One-Side downloads \(f.filename) from \(URL(string: u)?.host() ?? u)")
                     } else {
-                        DetailLine(ok: files[f.id] != nil, text: files[f.id].map { "Usará \($0.lastPathComponent)" } ?? (f.prompt.isEmpty ? "Necesita el archivo «\(f.filename)»." : "Necesita: \(f.prompt)")) {
-                            Button("Elegir…") { if let u = pickFile("Elige \(f.filename)") { files[f.id] = u } }
+                        DetailLine(ok: files[f.id] != nil, text: files[f.id].map { "Uses \($0.lastPathComponent)" } ?? (f.prompt.isEmpty ? "Needs the file “\(f.filename)”." : "Needs: \(f.prompt)")) {
+                            Button("Choose…") { if let u = pickFile("Choose \(f.filename)") { files[f.id] = u } }
                         }
                     }
                 }
                 bottleLine
-                if !r.verbs.isEmpty { DetailLine(ok: true, text: "Instalará lo que necesita: \(r.verbs.joined(separator: ", "))") }
-                ForEach(r.manual, id: \.self) { m in DetailLine(ok: false, text: "Paso que One-Side no hace por ti: \(m)") }
-                DetailLine(ok: true, text: "Instalador «\(r.version)» de \(r.author) en Lutris. Aparecerá en tu biblioteca con su portada.")
+                if !r.verbs.isEmpty { DetailLine(ok: true, text: "Also installs what it needs: \(r.verbs.joined(separator: ", "))") }
+                ForEach(r.manual, id: \.self) { m in DetailLine(ok: false, text: "A step One-Side can't do for you: \(m)") }
+                DetailLine(ok: true, text: "“\(r.version)” installer by \(r.author) on Lutris. It shows up in your library with its cover.")
             } else if let steam = o.steam {
                 if let _ = core.state?.steamBottle {
-                    DetailLine(ok: true, text: "Está en Steam: Steam lo descarga e instala en su botella.")
-                    Button { core.send(["cmd": "steam_install", "app": steam]) } label: { Label("Instalar con Steam", systemImage: "arrow.down") }
+                    DetailLine(ok: true, text: "It's on Steam: Steam downloads and installs it in its bottle.")
+                    Button { core.send(["cmd": "steam_install", "app": steam]) } label: { Label("Install with Steam", systemImage: "arrow.down") }
                         .buttonStyle(.borderedProminent)
                 } else {
-                    DetailLine(ok: false, text: "Está en Steam. Instala primero Steam y luego instálalo desde aquí.")
-                    Button("Instalar Steam") { core.installPath = [.store(0)] }
+                    DetailLine(ok: false, text: "It's on Steam. Install Steam first, then install it from here.")
+                    Button("Install Steam") { core.installPath = [.store(0)] }
                 }
             } else {
-                DetailLine(ok: false, text: "Lutris no tiene un instalador para Windows de este juego. Si tienes su instalador, usa «Instalar una aplicación que no está en la lista».")
+                DetailLine(ok: false, text: "Lutris has no Windows installer for this game. If you have its installer, use “Install an App That Isn't Listed”.")
             }
         } else {
-            HStack { ProgressView().controlSize(.small); Text("Leyendo el instalador de Lutris…").foregroundStyle(.secondary) }
+            HStack { ProgressView().controlSize(.small); Text("Reading the Lutris installer…").foregroundStyle(.secondary) }
         }
     }
 
     var bottleLine: some View {
-        DetailLine(ok: true, text: bottle.flatMap { id in core.bottle(id).map { "Se instalará en la botella «\($0.name)»." } }
-                   ?? "One-Side creará una botella nueva de Windows 10 de 64 bits llamada «\(name.isEmpty ? "…" : name)», solo para esta aplicación.") {
+        DetailLine(ok: true, text: bottle.flatMap { id in core.bottle(id).map { "Installs in the bottle “\($0.name)”." } }
+                   ?? "One-Side makes a new 64-bit Windows 10 bottle called “\(name.isEmpty ? "…" : name)”, just for this app.") {
             HStack {
                 Picker("", selection: $bottle) {
-                    Text("Botella nueva").tag(String?.none)
+                    Text("New bottle").tag(String?.none)
                     ForEach(core.bottles) { b in Text(b.name).tag(Optional(b.id)) }
                 }
                 .labelsHidden().frame(width: 170)
                 if bottle == nil {
-                    TextField("Nombre", text: $name).frame(width: 150)
+                    TextField("Name", text: $name).frame(width: 150)
                 }
             }
         }
@@ -356,16 +357,16 @@ struct DetailView: View {
 
     func accountLine(_ s: StoreItem, _ acc: Account) -> some View {
         let kind = s.key
-        return DetailLine(ok: true, text: acc.user.map { "Sin launcher: sesión iniciada como \($0). Tus \(acc.games) juegos están en la biblioteca, listos para descargar." }
-                          ?? (acc.ready ? "Recomendado: inicia sesión en \(s.name) y tus juegos aparecen en la biblioteca, sin su launcher." : "Conectando con \(s.name)…")) {
+        return DetailLine(ok: true, text: acc.user.map { "No launcher needed: signed in as \($0). Your \(acc.games) games are in the library, ready to download." }
+                          ?? (acc.ready ? "Recommended: sign in to \(s.name) and your games show up in the library, no launcher needed." : "Connecting to \(s.name)…")) {
             if acc.user != nil {
                 HStack {
-                    Button("Ver mis juegos") { core.section = .library }
-                    Button("Actualizar") { core.send(["cmd": "refresh", "kind": kind]) }
-                    Button("Cerrar sesión") { core.send(["cmd": "logout", "kind": kind]) }
+                    Button("Show My Games") { core.section = .library }
+                    Button("Refresh") { core.send(["cmd": "refresh", "kind": kind]) }
+                    Button("Sign Out") { core.send(["cmd": "logout", "kind": kind]) }
                 }
             } else if acc.ready {
-                Button("Iniciar sesión…") {
+                Button("Sign In…") {
                     if let f = core.send(["cmd": "login_flow", "kind": kind]), let url = f["url"] as? String {
                         NSWorkspace.shared.open(URL(string: url)!)
                         login = (url, f["instructions"] as? String ?? "")
@@ -378,14 +379,14 @@ struct DetailView: View {
 
     var loginSheet: some View {
         VStack(alignment: .leading, spacing: 14) {
-            Text("Iniciar sesión en \(title)").font(.title2.bold())
-            Text("Se ha abierto la página oficial en tu navegador. \(login?.instructions ?? "")").foregroundStyle(.secondary)
-            TextField("Pega aquí lo que te muestra la página", text: $code).textFieldStyle(.roundedBorder)
+            Text("Sign in to \(title)").font(.title2.bold())
+            Text("The official sign-in page is open in your browser. \(login?.instructions ?? "")").foregroundStyle(.secondary)
+            TextField("Paste what the page shows you", text: $code).textFieldStyle(.roundedBorder)
             HStack {
-                Button("Abrir la página otra vez") { if let u = login?.url, let url = URL(string: u) { NSWorkspace.shared.open(url) } }
+                Button("Open the Page Again") { if let u = login?.url, let url = URL(string: u) { NSWorkspace.shared.open(url) } }
                 Spacer()
-                Button("Cancelar") { login = nil }.keyboardShortcut(.cancelAction)
-                Button("Entrar") {
+                Button("Cancel") { login = nil }.keyboardShortcut(.cancelAction)
+                Button("Sign In") {
                     core.send(["cmd": "login", "kind": store?.key ?? "", "code": code])
                     code = ""; login = nil
                 }
@@ -452,7 +453,7 @@ struct PopularStores: View {
                             WhiteStars(rating: s.rating, showText: false).help(s.rating.text)
                         }
                         Spacer()
-                        Text(s.installed ? "Abrir" : "Instalar").font(.callout.weight(.semibold))
+                        Text(s.installed ? "Open" : "Install").font(.callout.weight(.semibold))
                             .padding(.horizontal, 14).padding(.vertical, 6)
                             .background(.white.opacity(0.92), in: Capsule()).foregroundStyle(s.brand)
                     }

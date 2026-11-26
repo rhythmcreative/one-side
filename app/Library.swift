@@ -18,13 +18,13 @@ struct LibraryView: View {
             if games.isEmpty && apps.isEmpty {
                 if core.search.isEmpty {
                     ContentUnavailableView {
-                        Label("Todavía no has instalado nada", systemImage: "square.stack.3d.up")
+                        Label("Nothing installed yet", systemImage: "square.stack.3d.up")
                     } description: {
-                        Text("Cada aplicación se instala en su propia botella y aparece aquí con su portada.")
+                        Text("Each app gets its own bottle and shows up here with its cover.")
                     } actions: {
-                        Button("Instalar una aplicación") { core.section = .install }
+                        Button("Install an App") { core.section = .install }
                             .buttonStyle(.borderedProminent).controlSize(.large)
-                        HStack(spacing: 4) { Text("o pulsa"); KeyCap("⌘N") }.font(.caption).foregroundStyle(.secondary)
+                        HStack(spacing: 4) { Text("or press"); KeyCap("⌘N") }.font(.caption).foregroundStyle(.secondary)
                     }
                 } else {
                     ContentUnavailableView.search(text: core.search)
@@ -32,16 +32,16 @@ struct LibraryView: View {
             } else {
                 ScrollView {
                     VStack(alignment: .leading, spacing: 22) {
-                        Text("Biblioteca").font(.largeTitle.bold())
+                        Text("Library").font(.largeTitle.bold())
                         if let f = games.first(where: { $0.hero != nil }) { FeaturedBanner(game: f) }
                         if !games.isEmpty {
-                            Text("Juegos").font(.title3.weight(.semibold))
+                            Text("Games").font(.title3.weight(.semibold))
                             LazyVGrid(columns: [GridItem(.adaptive(minimum: 150, maximum: 190), spacing: 22, alignment: .top)], alignment: .leading, spacing: 26) {
                                 ForEach(games) { g in CoverCell(game: g) }
                             }
                         }
                         if !apps.isEmpty {
-                            Text("Aplicaciones").font(.title3.weight(.semibold)).padding(.top, 6)
+                            Text("Apps").font(.title3.weight(.semibold)).padding(.top, 6)
                             LazyVGrid(columns: [GridItem(.adaptive(minimum: 110, maximum: 130), spacing: 12, alignment: .top)], alignment: .leading, spacing: 18) {
                                 ForEach(apps) { g in AppCell(game: g) }
                             }
@@ -52,7 +52,7 @@ struct LibraryView: View {
                 }
             }
         }
-        .searchable(text: $core.search, placement: .toolbar, prompt: "Buscar en la biblioteca")
+        .searchable(text: $core.search, placement: .toolbar, prompt: "Search the library")
         .inspector(isPresented: Binding(get: { core.selectedGame != nil && core.game(core.selectedGame) != nil }, set: { if !$0 { core.selectedGame = nil } })) {
             if let g = core.game(core.selectedGame) {
                 GameInspector(game: g).inspectorColumnWidth(min: 320, ideal: 360, max: 440)
@@ -60,11 +60,11 @@ struct LibraryView: View {
         }
         .toolbar {
             ToolbarItem(placement: .primaryAction) {
-                Button { core.section = .install } label: { Label("Instalar", systemImage: "plus") }
-                    .help("Instalar una aplicación (⌘N)")
+                Button { core.section = .install } label: { Label("Install", systemImage: "plus") }
+                    .help("Install an App (⌘N)")
             }
         }
-        .navigationTitle("Biblioteca")
+        .navigationTitle("Library")
     }
 }
 
@@ -99,7 +99,7 @@ struct CoverCell: View {
                 if game.compat?.level == "bad" {
                     Image(systemName: "nosign").font(.caption.bold()).foregroundStyle(.white)
                         .padding(5).background(.red, in: Circle()).padding(6)
-                        .help("No funciona en Mac: \(game.compat?.anticheat.joined(separator: ", ") ?? "")")
+                        .help("Doesn't work on Mac: \(game.compat?.anticheat.joined(separator: ", ") ?? "")")
                 }
             }
             .clipShape(RoundedRectangle(cornerRadius: 10))
@@ -144,13 +144,55 @@ struct GameMenu: View {
     @EnvironmentObject var core: Core
     let game: Game
     var body: some View {
-        Button(game.isGame ? "Jugar" : "Abrir") { core.play(game) }
-        Button("Ver detalles") { core.selectedGame = game.key }
-        Button("Mostrar su botella") { core.section = .bottle(game.bottle) }
-        if game.custom {
+        Button(game.isGame ? "Play" : "Open") { core.play(game) }
+        Button("Show Details") { core.selectedGame = game.key }
+        Button("Show Its Bottle") { core.section = .bottle(game.bottle) }
+        if let r = game.removal {
             Divider()
-            Button("Quitar de la biblioteca") { core.send(["cmd": "remove_game", "key": game.key]) }
+            Button(deleteLabel(r), role: .destructive) { deleteGame(core, game) }
         }
+    }
+}
+
+func deleteLabel(_ removal: String) -> String {
+    switch removal {
+    case "library": return "Remove from Library…"
+    case "bottle": return "Delete Bottle…"
+    case "native": return "Uninstall…"
+    default: return "Delete Game…"
+    }
+}
+
+/// Asks first, then deletes the game the way its store would (or the store's bottle).
+@MainActor
+func deleteGame(_ core: Core, _ game: Game) {
+    guard let r = game.removal else { return }
+    if r == "bottle" {
+        if let b = core.bottle(game.bottle) { deleteBottle(core, b) }
+        return
+    }
+    let a = NSAlert()
+    a.alertStyle = .warning
+    switch r {
+    case "library":
+        a.messageText = "Remove “\(game.name)” from your library?"
+        a.informativeText = "Its files stay on your disk, and you can add it again later."
+    case "native":
+        a.messageText = "Uninstall “\(game.name)”?"
+        a.informativeText = "Its files are deleted. It stays in your \(game.source) account, so you can download it again."
+    default:
+        a.messageText = "Delete “\(game.name)”?"
+        var t = "Its files are deleted from the bottle “\(game.bottleName)”. It stays in your \(game.source) account, so you can download it again. Cloud saves aren't touched."
+        if game.source == "Steam" { t += " If Steam is open, it's closed first." }
+        else { t += " Programs open in the bottle are closed first." }
+        a.informativeText = t
+    }
+    let del = a.addButton(withTitle: r == "library" ? "Remove" : (r == "native" ? "Uninstall" : "Delete"))
+    del.hasDestructiveAction = true
+    a.addButton(withTitle: "Cancel")
+    if a.runModal() == .alertFirstButtonReturn {
+        core.send(["cmd": "delete_game", "key": game.key])
+        if core.selectedGame == game.key { core.selectedGame = nil }
     }
 }
 
@@ -182,16 +224,16 @@ struct GameInspector: View {
                         HStack(alignment: .bottom, spacing: 12) {
                             VStack(alignment: .leading, spacing: 4) {
                                 Text(game.name).font(.title2.bold()).foregroundStyle(.white).lineLimit(2)
-                                Text("\(game.sourceLabel) · «\(game.bottleName)»").font(.caption).foregroundStyle(.white.opacity(0.8))
+                                Text("\(game.sourceLabel) · \(game.bottleName)").font(.caption).foregroundStyle(.white.opacity(0.8))
                             }
                             Spacer(minLength: 8)
                             if let t = game.task {
                                 HStack(spacing: 6) { ProgressView().controlSize(.mini).tint(.white); Text(t).lineLimit(1) }.font(.caption).foregroundStyle(.white)
                             } else if game.installed {
-                                PillButton(title: game.isGame ? "Jugar" : "Abrir", symbol: "play.fill", tint: .black) { core.play(game) }
+                                PillButton(title: game.isGame ? "Play" : "Open", symbol: "play.fill", tint: .black) { core.play(game) }
                                     .keyboardShortcut(.defaultAction)
                             } else {
-                                PillButton(title: "Descargar", symbol: "arrow.down", tint: .black) { core.download(game) }
+                                PillButton(title: "Download", symbol: "arrow.down", tint: .black) { core.download(game) }
                             }
                         }
                         .padding(16)
@@ -199,13 +241,13 @@ struct GameInspector: View {
                     .clipShape(RoundedRectangle(cornerRadius: 18))
                     .shadow(color: .black.opacity(0.2), radius: 10, y: 4)
                     if let lane = s.lane, s.autoGraphics != nil, (s.graphics ?? "auto") == "auto" {
-                        Label("Se cerró al arrancar; Auto usa \(lane)", systemImage: "exclamationmark.triangle.fill")
+                        Label("Closed at start, so Auto now uses \(lane)", systemImage: "exclamationmark.triangle.fill")
                             .font(.callout).foregroundStyle(.orange)
                     } else if s.fallback && s.lane == nil {
-                        Label("Se cerró con Metal; Auto usa WineD3D", systemImage: "exclamationmark.triangle.fill")
+                        Label("Closed on Metal, so Auto now uses WineD3D", systemImage: "exclamationmark.triangle.fill")
                             .font(.callout).foregroundStyle(.orange)
                     } else {
-                        Label(game.analysis ?? "Listo para jugar", systemImage: "checkmark.seal.fill")
+                        Label(game.analysis ?? "Ready to play", systemImage: "checkmark.seal.fill")
                             .font(.callout).foregroundStyle(.secondary)
                     }
                     if let c = game.compat { CompatBox(compat: c) }
@@ -213,52 +255,52 @@ struct GameInspector: View {
                     GroupBox {
                         VStack(alignment: .leading, spacing: 12) {
                             if let lane = s.lane {
-                                Picker("Gráficos", selection: Binding(get: { s.graphics ?? "auto" }, set: { set("graphics", $0) })) {
+                                Picker("Graphics", selection: Binding(get: { s.graphics ?? "auto" }, set: { set("graphics", $0) })) {
                                     Text((s.graphics ?? "auto") == "auto" ? "Auto (\(lane))" : "Auto").tag("auto")
                                     Text("D3DMetal").tag("d3dmetal"); Text("DXMT").tag("dxmt"); Text("WineD3D").tag("wine")
                                 }
                                 if s.autoGraphics != nil && (s.graphics ?? "auto") == "auto" {
-                                    Button("Volver a probar desde D3DMetal") { set("graphics", "auto") }.controlSize(.small)
+                                    Button("Try D3DMetal Again") { set("graphics", "auto") }.controlSize(.small)
                                 }
                             } else {
-                                Picker("Gráficos", selection: Binding(get: { s.backend }, set: { set("backend", $0) })) {
+                                Picker("Graphics", selection: Binding(get: { s.backend }, set: { set("backend", $0) })) {
                                     Text("Auto").tag("auto"); Text("Metal").tag("metal"); Text("WineD3D").tag("wined3d")
                                 }
-                                if s.fallback { Button("Volver a probar Metal") { set("retryMetal", true) }.controlSize(.small) }
+                                if s.fallback { Button("Try Metal Again") { set("retryMetal", true) }.controlSize(.small) }
                             }
                             if (s.lane == nil || s.lane == "DXMT") && (game.dualDx == true || (s.directx ?? 0) != 0) {
                                 Picker("DirectX", selection: Binding(get: { s.directx ?? 0 }, set: { set("directx", $0) })) {
                                     Text(game.autoDx11 == true ? "Auto (DirectX 11)" : "Auto (DirectX 12)").tag(0)
                                     Text("DirectX 11").tag(11); Text("DirectX 12").tag(12)
                                 }
-                                Text("DirectX 11 va por DXMT, más probado en Mac. DirectX 12 llega hasta el nivel 12_0, sin trazado de rayos.")
+                                Text("DirectX 11 runs on DXMT, which is better tested on Mac. DirectX 12 goes up to feature level 12_0, without ray tracing.")
                                     .font(.caption).foregroundStyle(.secondary)
                             }
                             if s.lane == nil || s.lane == "DXMT" {
-                            Toggle("MetalFX (DirectX 10 y 11)", isOn: Binding(get: { s.metalfx }, set: { set("metalfx", $0) }))
+                            Toggle("MetalFX (DirectX 10 and 11)", isOn: Binding(get: { s.metalfx }, set: { set("metalfx", $0) }))
                             }
                             if s.metalfx && (s.lane == nil || s.lane == "DXMT") {
-                                Picker("Escala", selection: Binding(get: { s.factor }, set: { set("factor", $0) })) {
-                                    Text("1,25×").tag(1.25); Text("1,5×").tag(1.5); Text("1,75×").tag(1.75); Text("2×").tag(2.0)
+                                Picker("Scale", selection: Binding(get: { s.factor }, set: { set("factor", $0) })) {
+                                    Text("1.25×").tag(1.25); Text("1.5×").tag(1.5); Text("1.75×").tag(1.75); Text("2×").tag(2.0)
                                 }
                             }
-                            Picker("Límite de FPS", selection: Binding(get: { s.fps }, set: { set("fps", $0) })) {
-                                Text("Sin límite").tag(0); Text("30").tag(30); Text("40").tag(40); Text("60").tag(60); Text("120").tag(120)
+                            Picker("FPS Limit", selection: Binding(get: { s.fps }, set: { set("fps", $0) })) {
+                                Text("No Limit").tag(0); Text("30").tag(30); Text("40").tag(40); Text("60").tag(60); Text("120").tag(120)
                             }
-                            Toggle("HUD de Metal", isOn: Binding(get: { s.hud }, set: { set("hud", $0) }))
+                            Toggle("Metal HUD", isOn: Binding(get: { s.hud }, set: { set("hud", $0) }))
                             if s.lane != nil {
-                                Toggle("OptiScaler: FSR y XeSS → DLSS", isOn: Binding(get: { s.optiscaler ?? false }, set: { set("optiscaler", $0) }))
-                                    .help("Para juegos sin DLSS: OptiScaler toma su FSR 2/3 o XeSS y lo pasa a DLSS, que aquí es MetalFX o FSR 4 si la botella lo tiene. Elige FSR o XeSS en el juego; la tecla Insert abre su menú.")
+                                Toggle("OptiScaler: FSR and XeSS → DLSS", isOn: Binding(get: { s.optiscaler ?? false }, set: { set("optiscaler", $0) }))
+                                    .help("For games without DLSS. OptiScaler takes the game's FSR 2/3 or XeSS and hands it to DLSS, which here is MetalFX, or FSR 4 if the bottle has it on. Pick FSR or XeSS in the game. Insert opens its menu.")
                             }
                             if let fix = game.fix {
                                 Divider()
-                                Toggle("Arreglo de la comunidad", isOn: Binding(get: { s.useFixes }, set: { set("useFixes", $0) }))
+                                Toggle("Community Fix", isOn: Binding(get: { s.useFixes }, set: { set("useFixes", $0) }))
                                 Text(fix).font(.caption).foregroundStyle(.secondary)
                             }
                         }
                         .padding(6)
                     } label: {
-                        Text("Ajustes").font(.headline)
+                        Text("Settings").font(.headline)
                     }
                 }
                 .padding(18)
@@ -268,9 +310,9 @@ struct GameInspector: View {
         }
         .toolbar {
             ToolbarItem {
-                Button { withAnimation { core.selectedGame = nil } } label: { Label("Cerrar", systemImage: "xmark") }
+                Button { withAnimation { core.selectedGame = nil } } label: { Label("Close", systemImage: "xmark") }
                     .keyboardShortcut(.cancelAction)
-                    .help("Cerrar (Esc)")
+                    .help("Close (Esc)")
             }
         }
     }
@@ -278,16 +320,15 @@ struct GameInspector: View {
     /// The less frequent actions, in a floating bar.
     var actionBar: some View {
         HStack(spacing: 4) {
-            barButton("Añadir al Dock", "dock.rectangle") {
+            barButton("Add to Dock", "dock.rectangle") {
                 if let p = core.send(["cmd": "shortcut", "key": game.key])?["path"] as? String {
-                    reveal(p); core.show("Acceso creado: arrástralo al Dock.")
+                    reveal(p); core.show("Shortcut made. Drag it to the Dock.")
                 }
             }
-            if let f = game.folder { barButton("Mostrar la carpeta", "folder") { openPath(f) } }
-            if let b = core.bottle(game.bottle) { barButton("Ver el registro", "doc.text") { openPath(b.log) } }
-            barButton("Ir a su botella", "shippingbox") { core.section = .bottle(game.bottle) }
-            if game.custom { barButton("Quitar de la biblioteca", "minus.circle") { core.send(["cmd": "remove_game", "key": game.key]); core.selectedGame = nil } }
-            if game.native && game.installed { barButton("Desinstalar", "trash") { core.send(["cmd": "uninstall", "key": game.key]) } }
+            if let f = game.folder { barButton("Show Folder", "folder") { openPath(f) } }
+            if let b = core.bottle(game.bottle) { barButton("Show Log", "doc.text") { openPath(b.log) } }
+            barButton("Go to Its Bottle", "shippingbox") { core.section = .bottle(game.bottle) }
+            if let r = game.removal { barButton(deleteLabel(r).replacingOccurrences(of: "…", with: ""), r == "library" ? "minus.circle" : "trash") { deleteGame(core, game) } }
         }
         .padding(.horizontal, 8).padding(.vertical, 5)
         .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 10))
@@ -326,19 +367,19 @@ struct CompatBox: View {
                     Text(compat.notes).font(.caption).foregroundStyle(.secondary).lineLimit(more ? nil : 3)
                         .fixedSize(horizontal: false, vertical: true)
                     if compat.notes.count > 160 {
-                        Button(more ? "Menos" : "Más") { more.toggle() }.buttonStyle(.link).font(.caption)
+                        Button(more ? "Less" : "More") { more.toggle() }.buttonStyle(.link).font(.caption)
                     }
                 }
                 HStack {
-                    Text("Datos de highball-db (CC0)").font(.caption2).foregroundStyle(.tertiary)
+                    Text("Data from highball-db (CC0)").font(.caption2).foregroundStyle(.tertiary)
                     Spacer()
-                    if let u = compat.url.flatMap(URL.init(string:)) { Link("Ver en Highball", destination: u).font(.caption) }
+                    if let u = compat.url.flatMap(URL.init(string:)) { Link("View on Highball", destination: u).font(.caption) }
                 }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
             .padding(6)
         } label: {
-            Text("En Mac").font(.headline)
+            Text("On Mac").font(.headline)
         }
     }
 }
@@ -359,16 +400,16 @@ struct FeaturedBanner: View {
             .overlay(LinearGradient(colors: [.black.opacity(0.75), .black.opacity(0.1)], startPoint: .leading, endPoint: .trailing))
             .overlay(alignment: .leading) {
             VStack(alignment: .leading, spacing: 10) {
-                Text("Destacado").font(.caption.weight(.bold)).textCase(.uppercase).foregroundStyle(.white.opacity(0.8))
+                Text("Featured").font(.caption.weight(.bold)).textCase(.uppercase).foregroundStyle(.white.opacity(0.8))
                 if let logo = Images.shared.image(game.logo) {
                     Image(nsImage: logo).resizable().scaledToFit().frame(maxWidth: 280, maxHeight: 90, alignment: .leading)
                 } else {
                     Text(game.name).font(.largeTitle.bold()).foregroundStyle(.white)
                 }
-                Text(game.analysis ?? "\(game.sourceLabel) · listo para jugar").font(.callout).foregroundStyle(.white.opacity(0.85))
+                Text(game.analysis ?? "\(game.sourceLabel) · ready to play").font(.callout).foregroundStyle(.white.opacity(0.85))
                 HStack(spacing: 10) {
-                    PillButton(title: game.isGame ? "Jugar" : "Abrir", symbol: "play.fill", tint: .black) { core.play(game) }
-                    Button("Detalles") { withAnimation { core.selectedGame = game.key } }
+                    PillButton(title: game.isGame ? "Play" : "Open", symbol: "play.fill", tint: .black) { core.play(game) }
+                    Button("Details") { withAnimation { core.selectedGame = game.key } }
                         .buttonStyle(.plain).font(.callout.weight(.semibold)).foregroundStyle(.white)
                         .padding(.horizontal, 14).padding(.vertical, 7)
                         .background(.white.opacity(0.18), in: Capsule())

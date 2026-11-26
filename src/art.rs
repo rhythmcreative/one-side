@@ -221,7 +221,7 @@ pub fn steam_id_for(name: &str) -> Option<String> {
                 let found = id.is_some();
                 ids.insert(key, id);
                 let _ = fs::create_dir_all(dir());
-                let _ = fs::write(ids_file(), serde_json::to_vec(&*ids).unwrap_or_default());
+                let _ = crate::write_atomic(&ids_file(), &serde_json::to_vec(&*ids).unwrap_or_default());
                 if found {
                     landed();
                 }

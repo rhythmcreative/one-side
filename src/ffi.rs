@@ -38,9 +38,32 @@ struct Core {
     shared: Handle,
     wt: Vec<WtApp>,
     lutris: Arc<Mutex<Lutris>>,
+    /// The last state sent to the window, and what it was built from. The window asks
+    /// twice a second; rebuilding it every time kept the CPU busy for nothing.
+    sent: Option<(StateKey, std::time::Instant, String)>,
 }
 
+/// What the state depends on that changes without going through a command: jobs
+/// (`Shared::version`) and the Lutris search threads.
+#[derive(PartialEq)]
+struct StateKey {
+    version: u64,
+    lutris: (String, bool, bool, usize, usize),
+}
+
+/// Even with nothing marked as changed, the state is rebuilt this often (download
+/// progress of art, shaders being compiled, versions on disk).
+const STATE_MAX_AGE: std::time::Duration = std::time::Duration::from_secs(2);
+
 impl Core {
+    fn state_key(&self) -> StateKey {
+        let l = self.lutris.lock().unwrap();
+        StateKey {
+            version: self.shared.lock().unwrap().version,
+            lutris: (l.query.clone(), l.busy, l.error.is_some(), l.results.len(), l.offers.values().filter(|o| o.is_some()).count()),
+        }
+    }
+
     fn reload(&mut self) {
         self.bottles = Bottle::load_all();
         self.games = library::scan(&self.bottles);
@@ -52,10 +75,15 @@ impl Core {
     fn game(&self, key: &str) -> Option<&Game> {
         self.games.iter().find(|g| g.key == key)
     }
+    /// The bottle as it is on disk now, for a change: a job may have saved it since
+    /// the last reload. Callers hold `engine::config_lock()` until they save.
+    fn fresh(&self, id: &str) -> Option<Bottle> {
+        Bottle::load(id).or_else(|| self.bottle(id).cloned())
+    }
     fn save_bottle(&mut self, b: Bottle) {
         if let Err(e) = b.save() {
             install::set(&self.shared, |s| {
-                s.message = Some(format!("No se pudo guardar la botella «{}»: {e}", b.config.name));
+                s.message = Some(format!("Couldn't save the bottle “{}”: {e}", b.config.name));
                 s.message_error = true;
             });
         }
@@ -78,6 +106,7 @@ static CORE: LazyLock<Mutex<Core>> = LazyLock::new(|| {
         shared: Handle::default(),
         wt: catalog::winetricks_apps(),
         lutris: Arc::default(),
+        sent: None,
     };
     c.reload();
     if c.fixes.count() == 0 || c.fixes.compat.is_empty() {
@@ -87,6 +116,20 @@ static CORE: LazyLock<Mutex<Core>> = LazyLock::new(|| {
     std::thread::spawn(move || {
         native::get();
         install::set(&h, |s| s.dirty = true);
+    });
+    crate::update::start(c.shared.clone());
+    // After a crash or a power cut: finish deleting bottles left halfway, and put back
+    // a Windows registry file Wine had not finished writing.
+    let (h, bottles) = (c.shared.clone(), c.bottles.clone());
+    std::thread::spawn(move || {
+        crate::remove::finish_deletes();
+        let fixed: Vec<String> = bottles.iter().filter(|b| !b.guard_registry().is_empty()).map(|b| b.config.name.clone()).collect();
+        if !fixed.is_empty() {
+            install::set(&h, |s| {
+                s.message = Some(format!("Repaired the Windows registry of {} (the Mac shut down before it was fully saved).", fixed.join(", ")));
+                s.message_error = false;
+            });
+        }
     });
     Mutex::new(c)
 });
@@ -120,7 +163,7 @@ fn art_of(g: &Game) -> Art {
 }
 
 fn is_game(g: &Game) -> bool {
-    !g.key.starts_with("launcher-") && (g.source != "Propio" || !art_of(g).is_empty())
+    !g.key.starts_with("launcher-") && (g.source != "Custom" || !art_of(g).is_empty())
 }
 
 fn backend_name(b: Backend) -> &'static str {
@@ -145,15 +188,15 @@ fn rating(stars: u8, text: &str) -> Value {
 
 fn store_rating(id: &str, experimental: bool) -> Value {
     match id {
-        "steam" => rating(5, "Funciona genial"),
-        "epic" | "gog" => rating(4, "Funciona bien"),
+        "steam" => rating(5, "Works great"),
+        "epic" | "gog" => rating(4, "Works well"),
         _ if experimental => rating(3, "Experimental"),
-        _ => rating(4, "Funciona bien"),
+        _ => rating(4, "Works well"),
     }
 }
 
 fn wt_rating(verb: &str) -> Value {
-    if verb == "7zip" { rating(5, "Funciona genial") } else { rating(4, "Funciona bien") }
+    if verb == "7zip" { rating(5, "Works great") } else { rating(4, "Works well") }
 }
 
 fn native_kind(s: &str) -> Option<Kind> {
@@ -166,11 +209,11 @@ fn native_kind(s: &str) -> Option<Kind> {
 
 fn install_text(s: &State) -> String {
     match s {
-        State::Downloading(p) => format!("Descargando el instalador… {:.0} %", p * 100.0),
-        State::Preparing => "Preparando la botella…".into(),
-        State::Installing => "Instalando…".into(),
-        State::WaitingForUser => "Sigue los pasos del instalador".into(),
-        State::Failed(m) => format!("Falló: {m}"),
+        State::Downloading(p) => format!("Downloading the installer… {:.0}%", p * 100.0),
+        State::Preparing => "Preparing the bottle…".into(),
+        State::Installing => "Installing…".into(),
+        State::WaitingForUser => "Follow the installer's steps".into(),
+        State::Failed(m) => format!("Failed: {m}"),
     }
 }
 
@@ -199,13 +242,14 @@ fn state_json(c: &Core) -> Value {
             let lane = b.filter(|_| d3dm).map(|b| b.graphics(Some((g, &c.fixes))));
             let analysis = found.as_ref().map(|x| {
                 let s = match lane { Some(l) => x.summary_d3dmetal(l), None => x.summary(wined3d) };
-                if hide12 && lane.is_none_or(|l| l == Graphics::Dxmt) { format!("{s} · usa DX11 en DXMT") } else { s }
+                if hide12 && lane.is_none_or(|l| l == Graphics::Dxmt) { format!("{s} · DX11 on DXMT") } else { s }
             });
             json!({
                 "key": g.key, "name": g.name, "source": g.source, "bottle": g.bottle,
                 "bottleName": names.get(g.bottle.as_str()).copied().unwrap_or(""),
                 "installed": g.installed, "isGame": is_game(g),
                 "custom": g.custom.is_some(), "native": matches!(g.launch, Launch::Native { .. }),
+                "removal": crate::remove::removal(g).map(|r| r.name()),
                 "cover": path_str(a.cover.as_deref().and_then(art::cached)),
                 "hero": path_str(a.hero.as_deref().and_then(art::cached)),
                 "logo": path_str(a.logo.as_deref().and_then(art::cached)),
@@ -328,6 +372,11 @@ fn state_json(c: &Core) -> Value {
         "engine": { "version": engine::engine_version(), "installed": engine::engine_installed() },
         "fixes": { "games": c.fixes.count(), "names": c.fixes.umu.len(), "compat": c.fixes.compat_count() },
         "consents": crate::legal::all(),
+        "updates": {
+            "auto": crate::update::settings().auto_update, "lastCheck": crate::update::settings().last_check,
+            "app": env!("CARGO_PKG_VERSION"), "metalsharp": engine::d3dmetal_version(),
+            "fsr4": crate::fsr4::version(), "optiscaler": crate::optiscaler::version(),
+        },
         "steamBottle": c.bottles.iter().find(|b| b.config.store.as_deref() == Some("steam") && b.launcher_installed()).map(|b| b.id.clone()),
     })
 }
@@ -341,7 +390,7 @@ fn opt(v: &Value, k: &str) -> Option<String> {
 }
 
 fn kind_of(v: &Value) -> Result<Kind, String> {
-    native_kind(s(v, "kind")).ok_or_else(|| "tienda desconocida".to_owned())
+    native_kind(s(v, "kind")).ok_or_else(|| "unknown store".to_owned())
 }
 
 fn command(c: &mut Core, v: &Value) -> Result<Value, String> {
@@ -349,45 +398,54 @@ fn command(c: &mut Core, v: &Value) -> Result<Value, String> {
     match s(v, "cmd") {
         "reload" => c.reload(),
         "play" => {
-            let g = c.game(s(v, "key")).cloned().ok_or("ese juego ya no está")?;
+            let g = c.game(s(v, "key")).cloned().ok_or("that game is gone")?;
             b_write_rules(c, &g.bottle);
             install::spawn_play(g, c.games.clone(), h);
         }
         "download" => {
-            let g = c.game(s(v, "key")).cloned().ok_or("ese juego ya no está")?;
-            let Launch::Native { kind, app } = g.launch.clone() else { return Err("no se descarga desde aquí".into()) };
+            let g = c.game(s(v, "key")).cloned().ok_or("that game is gone")?;
+            let Launch::Native { kind, app } = g.launch.clone() else { return Err("it isn't downloaded from here".into()) };
             let (h2, key) = (h.clone(), g.key.clone());
-            install::spawn_job(g.key.clone(), "Preparando…".into(), h, move |_| {
+            install::spawn_job(g.key.clone(), "Preparing…".into(), h, move |_| {
                 let k2 = key.clone();
                 let report: Arc<dyn Fn(String) + Send + Sync> = Arc::new(move |t| install::set(&h2, |s| _ = s.tasks.insert(k2.clone(), t)));
                 native::get().install(kind, &app, report)?;
-                Ok(Some(format!("{} ya está descargado.", g.name)))
+                Ok(Some(format!("{} is downloaded.", g.name)))
             });
         }
         "uninstall" => {
-            let g = c.game(s(v, "key")).cloned().ok_or("ese juego ya no está")?;
-            let Launch::Native { kind, app } = g.launch.clone() else { return Err("no se desinstala desde aquí".into()) };
-            install::spawn_job(g.key.clone(), "Desinstalando…".into(), h, move |_| {
+            let g = c.game(s(v, "key")).cloned().ok_or("that game is gone")?;
+            let Launch::Native { kind, app } = g.launch.clone() else { return Err("it isn't uninstalled from here".into()) };
+            install::spawn_job(g.key.clone(), "Uninstalling…".into(), h, move |_| {
                 native::get().uninstall(kind, &app)?;
-                Ok(Some(format!("{} desinstalado.", g.name)))
+                Ok(Some(format!("Uninstalled {}.", g.name)))
             });
         }
         "remove_game" => {
-            let g = c.game(s(v, "key")).cloned().ok_or("ese juego ya no está")?;
-            if let (Some(mut b), Some(i)) = (c.bottle(&g.bottle).cloned(), g.custom) {
-                b.config.games.remove(i);
+            let g = c.game(s(v, "key")).cloned().ok_or("that game is gone")?;
+            let _l = engine::config_lock();
+            if let (Some(mut b), Some(i)) = (c.fresh(&g.bottle), g.custom) {
+                // By its .exe: the index is from the last scan.
+                let exe = g.exe.as_deref().map(|e| e.to_string_lossy().into_owned());
+                match b.config.games.iter().position(|x| Some(&x.exe) == exe.as_ref()) {
+                    Some(j) => _ = b.config.games.remove(j),
+                    None if i < b.config.games.len() && exe.is_none() => _ = b.config.games.remove(i),
+                    None => {}
+                }
+                b.config.game_settings.remove(&g.key);
                 c.save_bottle(b);
                 c.reload();
             }
         }
         "shortcut" => {
-            let g = c.game(s(v, "key")).cloned().ok_or("ese juego ya no está")?;
+            let g = c.game(s(v, "key")).cloned().ok_or("that game is gone")?;
             let p = engine::make_shortcut(&g)?;
             return Ok(json!({ "path": p }));
         }
         "game_set" => {
-            let g = c.game(s(v, "key")).cloned().ok_or("ese juego ya no está")?;
-            let mut b = c.bottle(&g.bottle).cloned().ok_or("la botella ya no existe")?;
+            let g = c.game(s(v, "key")).cloned().ok_or("that game is gone")?;
+            let _l = engine::config_lock();
+            let mut b = c.fresh(&g.bottle).ok_or("that bottle is gone")?;
             let mut gs = b.config.game(&g.key);
             let val = &v["value"];
             match s(v, "field") {
@@ -409,23 +467,26 @@ fn command(c: &mut Core, v: &Value) -> Result<Value, String> {
                 "optiscaler" => {
                     gs.optiscaler = val.as_bool().unwrap_or(false);
                     if gs.optiscaler && !crate::optiscaler::installed() {
-                        install::spawn_job(b.id.clone(), "Instalando OptiScaler…".into(), h.clone(), move |report| {
+                        install::spawn_job(b.id.clone(), "Installing OptiScaler…".into(), h.clone(), move |report| {
                             let tag = crate::optiscaler::install(report)?;
-                            Ok(Some(format!("OptiScaler {tag} listo. Elige FSR o XeSS en el juego.")))
+                            Ok(Some(format!("OptiScaler {tag} is ready. Pick FSR or XeSS in the game.")))
                         });
                     }
                 }
-                f => return Err(format!("ajuste desconocido: {f}")),
+                f => return Err(format!("unknown setting: {f}")),
             }
             b.config.game_settings.insert(g.key.clone(), gs);
             c.save_bottle(b);
         }
         "bottle_set" => {
-            let mut b = c.bottle(s(v, "id")).cloned().ok_or("la botella ya no existe")?;
+            let _l = engine::config_lock();
+            let mut b = c.fresh(s(v, "id")).ok_or("that bottle is gone")?;
             let val = &v["value"];
             let mut apply = false;
             let mut fetch = false;
             let mut fetch_fsr4 = false;
+            // The bottle as it was, to stop its old engine's processes in the background.
+            let mut stop: Option<Bottle> = None;
             match s(v, "field") {
                 "windows" => {
                     b.config.windows = val.as_str().unwrap_or("win10").to_owned();
@@ -454,29 +515,37 @@ fn command(c: &mut Core, v: &Value) -> Result<Value, String> {
                 "engine" => {
                     let want = if val.as_str() == Some("d3dmetal") { Engine::D3dmetal } else { Engine::Mach9 };
                     if want != b.config.engine {
-                        // The old engine's processes go; the new one updates the prefix itself.
-                        b.kill_all();
+                        // The old engine's processes go (in a job: it can take seconds and
+                        // this runs on the window's thread); the new one updates the prefix itself.
+                        stop = Some(b.clone());
                         b.config.engine = want;
                         fetch = want == Engine::D3dmetal && !engine::d3dmetal_installed();
                     }
                 }
-                f => return Err(format!("ajuste desconocido: {f}")),
+                f => return Err(format!("unknown setting: {f}")),
             }
             c.save_bottle(b.clone());
-            if fetch {
-                install::spawn_job(b.id.clone(), "Bajando D3DMetal…".into(), h.clone(), move |report| {
-                    let tag = engine::install_d3dmetal(|p| report(format!("Bajando D3DMetal {:.0} %", p * 100.0)))?;
-                    Ok(Some(format!("D3DMetal {tag} listo.")))
+            if stop.is_some() || fetch {
+                install::spawn_job(b.id.clone(), "Switching engine…".into(), h.clone(), move |report| {
+                    if let Some(old) = stop {
+                        report("Closing the bottle…".into());
+                        old.kill_all();
+                    }
+                    if !fetch {
+                        return Ok(None);
+                    }
+                    let tag = engine::install_d3dmetal(|p| report(format!("Downloading D3DMetal {:.0}%", p * 100.0)))?;
+                    Ok(Some(format!("D3DMetal {tag} is ready.")))
                 });
             }
             if fetch_fsr4 {
-                install::spawn_job(b.id.clone(), "Instalando FSR 4…".into(), h.clone(), move |report| {
+                install::spawn_job(b.id.clone(), "Installing FSR 4…".into(), h.clone(), move |report| {
                     let tag = crate::fsr4::install(report)?;
-                    Ok(Some(format!("FSR 4 ({tag}) listo. Activa DLSS en el juego.")))
+                    Ok(Some(format!("FSR 4 ({tag}) is ready. Turn on DLSS in the game.")))
                 });
             }
             if apply {
-                install::spawn_job(b.id.clone(), "Aplicando…".into(), h, move |_| {
+                install::spawn_job(b.id.clone(), "Applying…".into(), h, move |_| {
                     b.set_windows_version().map_err(|e| e.to_string())?;
                     b.set_retina().map_err(|e| e.to_string())?;
                     Ok(None)
@@ -484,7 +553,7 @@ fn command(c: &mut Core, v: &Value) -> Result<Value, String> {
             }
         }
         "bottle_tool" => {
-            let b = c.bottle(s(v, "id")).cloned().ok_or("la botella ya no existe")?;
+            let b = c.bottle(s(v, "id")).cloned().ok_or("that bottle is gone")?;
             let a = match s(v, "tool") {
                 "kill" => {
                     install::spawn_wait(move || b.kill_all(), h);
@@ -492,13 +561,13 @@ fn command(c: &mut Core, v: &Value) -> Result<Value, String> {
                 }
                 "console" => engine::args(&["wineconsole", "cmd"]),
                 t @ ("winecfg" | "regedit" | "taskmgr" | "explorer") => vec![t.to_owned()],
-                t => return Err(format!("herramienta desconocida: {t}")),
+                t => return Err(format!("unknown tool: {t}")),
             };
             b.write_rules(&c.games, &c.fixes);
             install::spawn_run(b, a, None, h);
         }
         "run" => {
-            let b = c.bottle(s(v, "id")).cloned().ok_or("la botella ya no existe")?;
+            let b = c.bottle(s(v, "id")).cloned().ok_or("that bottle is gone")?;
             let f = PathBuf::from(s(v, "path"));
             let p = f.to_string_lossy().into_owned();
             let mut a = if f.extension().is_some_and(|x| x.eq_ignore_ascii_case("msi")) { engine::args(&["msiexec", "/i", &p]) } else { vec![p] };
@@ -507,50 +576,50 @@ fn command(c: &mut Core, v: &Value) -> Result<Value, String> {
             install::spawn_run(b, a, f.parent().map(Path::to_path_buf), h);
         }
         "add_program" => {
-            let mut b = c.bottle(s(v, "id")).cloned().ok_or("la botella ya no existe")?;
+            let _l = engine::config_lock();
+            let mut b = c.fresh(s(v, "id")).ok_or("that bottle is gone")?;
             b.config.games.push(CustomGame { name: s(v, "name").to_owned(), exe: s(v, "exe").to_owned(), args: s(v, "args").to_owned() });
             c.save_bottle(b);
             c.reload();
         }
         "accept_terms" => {
-            crate::legal::accept(s(v, "key")).map_err(|e| format!("No se pudo guardar: {e}"))?;
+            crate::legal::accept(s(v, "key")).map_err(|e| format!("Couldn't save: {e}"))?;
         }
         "winetricks" => {
             if let Some(k) = crate::legal::missing_for_verbs(&[s(v, "verb").to_owned()]).first() {
                 return Err(crate::legal::need(k));
             }
-            let b = c.bottle(s(v, "id")).cloned().ok_or("la botella ya no existe")?;
+            let b = c.bottle(s(v, "id")).cloned().ok_or("that bottle is gone")?;
             install::spawn_winetricks(b, vec![s(v, "verb").to_owned()], h);
         }
         "delete_bottle" => {
-            let b = c.bottle(s(v, "id")).cloned().ok_or("la botella ya no existe")?;
-            install::spawn_wait(
-                move || {
-                    b.kill_all();
-                    let _ = std::fs::remove_dir_all(b.dir());
-                },
-                h,
-            );
+            let b = c.bottle(s(v, "id")).cloned().ok_or("that bottle is gone")?;
+            install::spawn_job(b.id.clone(), "Deleting…".into(), h, move |report| crate::remove::delete_bottle(&b, report).map(Some));
+        }
+        "delete_game" => {
+            let g = c.game(s(v, "key")).cloned().ok_or("that game is gone")?;
+            let b = c.bottle(&g.bottle).cloned().ok_or("that bottle is gone")?;
+            install::spawn_job(g.key.clone(), "Deleting…".into(), h, move |report| crate::remove::delete_game(&b, &g, report).map(Some));
         }
         "export_bottle" => {
-            let b = c.bottle(s(v, "id")).cloned().ok_or("la botella ya no existe")?;
+            let b = c.bottle(s(v, "id")).cloned().ok_or("that bottle is gone")?;
             let dest = PathBuf::from(s(v, "path"));
-            install::spawn_job(b.id.clone(), "Exportando…".into(), h, move |_| {
+            install::spawn_job(b.id.clone(), "Exporting…".into(), h, move |_| {
                 b.export(&dest)?;
-                Ok(Some(format!("Botella guardada en {}", dest.display())))
+                Ok(Some(format!("Bottle saved to {}", dest.display())))
             });
         }
         "import_bottle" => {
             let f = PathBuf::from(s(v, "path"));
-            install::spawn_job("import".into(), "Importando…".into(), h, move |_| {
+            install::spawn_job("import".into(), "Importing…".into(), h, move |_| {
                 let b = Bottle::import(&f)?;
-                Ok(Some(format!("Botella «{}» importada.", b.config.name)))
+                Ok(Some(format!("Imported the bottle “{}”.", b.config.name)))
             });
         }
         "create_bottle" => install::spawn_create_bottle(s(v, "name").to_owned(), h),
         "install_store" => {
-            let i = v["index"].as_u64().ok_or("falta la tienda")? as usize;
-            let store = STORES.get(i).ok_or("tienda desconocida")?;
+            let i = v["index"].as_u64().ok_or("no store given")? as usize;
+            let store = STORES.get(i).ok_or("unknown store")?;
             // A silent installer skips the store's licence page: the user accepts it here.
             if store.silent.is_some() && !crate::legal::accepted(&format!("store.{}", store.id)) {
                 return Err(crate::legal::need(&format!("store.{}", store.id)));
@@ -558,10 +627,12 @@ fn command(c: &mut Core, v: &Value) -> Result<Value, String> {
             install::spawn_install(store, opt(v, "file").map(PathBuf::from), h);
         }
         "rescan_store" => {
-            let i = v["index"].as_u64().ok_or("falta la tienda")? as usize;
-            let store = STORES.get(i).ok_or("tienda desconocida")?;
-            let mut b = c.bottles.iter().find(|b| b.config.store.as_deref() == Some(store.id)).cloned().ok_or("no hay botella")?;
-            let exe = engine::find_exe(&b.drive_c(), store.exe_names).ok_or_else(|| format!("Todavía no aparece {} en la botella.", store.exe_names[0]))?;
+            let i = v["index"].as_u64().ok_or("no store given")? as usize;
+            let store = STORES.get(i).ok_or("unknown store")?;
+            let _l = engine::config_lock();
+            let id = c.bottles.iter().find(|b| b.config.store.as_deref() == Some(store.id)).map(|b| b.id.clone()).ok_or("there's no bottle")?;
+            let mut b = c.fresh(&id).ok_or("there's no bottle")?;
+            let exe = engine::find_exe(&b.drive_c(), store.exe_names).ok_or_else(|| format!("{} isn't in the bottle yet.", store.exe_names[0]))?;
             b.config.launcher = Some(exe.to_string_lossy().into_owned());
             c.save_bottle(b);
             c.shared.lock().unwrap().installs.remove(store.id);
@@ -584,12 +655,12 @@ fn command(c: &mut Core, v: &Value) -> Result<Value, String> {
                     _ => None,
                 }
             }
-            .ok_or("el instalador todavía no se ha leído")?;
+            .ok_or("the installer hasn't been read yet")?;
             let own: HashMap<String, PathBuf> = v["files"].as_object().map(|o| o.iter().filter_map(|(k, p)| Some((k.clone(), PathBuf::from(p.as_str()?)))).collect()).unwrap_or_default();
             install::spawn_install_recipe(recipe, s(v, "name").to_owned(), opt(v, "bottle"), own, h);
         }
         "steam_install" => {
-            let id = c.bottles.iter().find(|b| b.config.store.as_deref() == Some("steam") && b.launcher_installed()).cloned().ok_or("Instala Steam primero")?;
+            let id = c.bottles.iter().find(|b| b.config.store.as_deref() == Some("steam") && b.launcher_installed()).cloned().ok_or("Install Steam first")?;
             let l = id.config.launcher.clone().unwrap_or_default();
             let a = vec![l.clone(), format!("steam://install/{}", s(v, "app"))];
             install::spawn_run(id, a, PathBuf::from(&l).parent().map(Path::to_path_buf), h);
@@ -610,35 +681,44 @@ fn command(c: &mut Core, v: &Value) -> Result<Value, String> {
         }
         "login_flow" => {
             let k = kind_of(v)?;
-            let n = native::try_get().ok_or("Todavía conectando con la tienda")?;
-            let f = n.login_flow(k).ok_or("Esta tienda no tiene inicio de sesión por web")?;
+            let n = native::try_get().ok_or("Still connecting to the store")?;
+            let f = n.login_flow(k).ok_or("This store has no web sign-in")?;
             return Ok(json!({ "url": f.url, "instructions": f.instructions }));
         }
         "login" => {
             let k = kind_of(v)?;
             let code = s(v, "code").to_owned();
-            install::spawn_job(format!("account-{}", k.bottle_store()), "Entrando…".into(), h, move |_| {
+            install::spawn_job(format!("account-{}", k.bottle_store()), "Signing in…".into(), h, move |_| {
                 let u = native::get().login(k, &code)?;
-                Ok(Some(format!("Sesión iniciada en {} como {u}. Tus juegos ya están en la biblioteca.", k.name())))
+                Ok(Some(format!("Signed in to {} as {u}. Your games are in the library.", k.name())))
             });
         }
         "logout" => {
             let k = kind_of(v)?;
-            install::spawn_job(format!("account-{}", k.bottle_store()), "Cerrando sesión…".into(), h, move |_| {
+            install::spawn_job(format!("account-{}", k.bottle_store()), "Signing out…".into(), h, move |_| {
                 native::get().logout(k);
                 Ok(None)
             });
         }
         "refresh" => {
             let k = kind_of(v)?;
-            install::spawn_job(format!("account-{}", k.bottle_store()), "Actualizando tu lista…".into(), h, move |_| {
+            install::spawn_job(format!("account-{}", k.bottle_store()), "Refreshing your games…".into(), h, move |_| {
                 native::get().refresh(k)?;
                 Ok(None)
             });
         }
         "update_engine" => install::spawn_update_engine(h),
+        "check_updates" => crate::update::spawn_check(h, false),
+        "set_auto_update" => {
+            let mut st = crate::update::settings();
+            st.auto_update = v["value"].as_bool().unwrap_or(true);
+            crate::update::save_settings(&st).map_err(|e| e.to_string())?;
+            if st.auto_update {
+                crate::update::spawn_check(h, true);
+            }
+        }
         "update_fixes" => install::spawn_update_fixes(h),
-        other => return Err(format!("orden desconocida: {other}")),
+        other => return Err(format!("unknown command: {other}")),
     }
     Ok(Value::Null)
 }
@@ -713,14 +793,26 @@ pub extern "C" fn os_state() -> *mut c_char {
     if dirty {
         c.reload();
     }
-    to_c(state_json(&c))
+    let key = c.state_key();
+    if !dirty && !fixes_dirty {
+        if let Some((k, at, json)) = &c.sent {
+            if *k == key && at.elapsed() < STATE_MAX_AGE {
+                return CString::new(json.as_str()).unwrap_or_default().into_raw();
+            }
+        }
+    }
+    let has_message = c.shared.lock().unwrap().message.is_some();
+    let json = state_json(&c).to_string();
+    // A state carrying a message is sent once, or the window would show it again.
+    c.sent = (!has_message).then(|| (key, std::time::Instant::now(), json.clone()));
+    CString::new(json).unwrap_or_default().into_raw()
 }
 
 /// Runs a command given as JSON (`{"cmd": "...", ...}`); returns `{"ok": ..}` or `{"error": ..}`.
 #[unsafe(no_mangle)]
 pub extern "C" fn os_command(json: *const c_char) -> *mut c_char {
     if json.is_null() {
-        return to_c(json!({ "error": "orden vacía" }));
+        return to_c(json!({ "error": "empty command" }));
     }
     let text = unsafe { CStr::from_ptr(json) }.to_string_lossy().into_owned();
     let v: Value = match serde_json::from_str(&text) {
@@ -728,6 +820,8 @@ pub extern "C" fn os_command(json: *const c_char) -> *mut c_char {
         Err(e) => return to_c(json!({ "error": e.to_string() })),
     };
     let mut c = CORE.lock().unwrap();
+    // A command changes the state right away (a toggle must not flip back).
+    c.sent = None;
     match command(&mut c, &v) {
         Ok(data) => to_c(json!({ "ok": data })),
         Err(e) => to_c(json!({ "error": e })),
@@ -769,7 +863,7 @@ mod tests {
 
         let mut c = Core {
             bottles: vec![], games: vec![], programs: HashMap::new(), fixes: FixDb::load(),
-            shared: Handle::default(), wt: vec![], lutris: Arc::default(),
+            shared: Handle::default(), wt: vec![], lutris: Arc::default(), sent: None,
         };
         c.reload();
         let key = "launcher-steam";

@@ -52,7 +52,7 @@ pub fn set(h: &Handle, f: impl FnOnce(&mut Shared)) {
 }
 
 pub fn download(url: &str, dest: &Path, mut progress: impl FnMut(f32)) -> Result<(), String> {
-    let res = crate::http_get(url).call().map_err(|e| format!("Descarga fallida: {e}"))?;
+    let res = crate::http_get(url).call().map_err(|e| format!("Download failed: {e}"))?;
     let total = res.body().content_length().unwrap_or(0);
     let mut reader = res.into_body().into_reader();
     fs::create_dir_all(dest.parent().unwrap()).map_err(|e| e.to_string())?;
@@ -61,7 +61,7 @@ pub fn download(url: &str, dest: &Path, mut progress: impl FnMut(f32)) -> Result
     let mut buf = vec![0u8; 1 << 16];
     let mut done = 0u64;
     loop {
-        let n = reader.read(&mut buf).map_err(|e| format!("Descarga cortada: {e}"))?;
+        let n = reader.read(&mut buf).map_err(|e| format!("Download interrupted: {e}"))?;
         if n == 0 {
             break;
         }
@@ -119,7 +119,7 @@ fn install(store: &'static Store, own: Option<PathBuf>, h: &Handle) -> Result<()
 
     set(h, |s| _ = s.installs.insert(store.id, State::Preparing));
     let existing = Bottle::load_all().into_iter().find(|b| b.config.store.as_deref() == Some(store.id));
-    let mut b = match existing {
+    let b = match existing {
         Some(b) => b,
         None => {
             // DirectX 11/12 games, most of a Steam library, run on Apple's D3DMetal as in
@@ -162,10 +162,10 @@ fn install(store: &'static Store, own: Option<PathBuf>, h: &Handle) -> Result<()
         thread::sleep(Duration::from_secs(2));
     }
     let exe = exe.ok_or_else(|| {
-        format!("La instalación terminó pero no aparece {}. Si el instalador sigue abierto, termínalo y pulsa «Ya terminé».", store.exe_names[0])
+        format!("The install finished but {} isn't there. If the installer is still open, finish it and press “I'm Done Installing”.", store.exe_names[0])
     })?;
-    b.config.launcher = Some(exe.to_string_lossy().into_owned());
-    b.save().map_err(|e| e.to_string())?;
+    let launcher = exe.to_string_lossy().into_owned();
+    Bottle::update(&b.id, |c| c.launcher = Some(launcher)).map_err(|e| e.to_string())?;
     Ok(())
 }
 
@@ -237,21 +237,21 @@ where
 
 pub fn spawn_update_fixes(h: Handle) {
     let h2 = h.clone();
-    spawn_job("fixes".into(), "Bajando arreglos y compatibilidad…".into(), h, move |_| {
+    spawn_job("fixes".into(), "Downloading game fixes and compatibility data…".into(), h, move |_| {
         let db = fixes::update()?;
         h2.lock().unwrap().fixes_dirty = true;
-        Ok(Some(format!("Arreglos actualizados: {} juegos con arreglo, {} en la base de Highball.", db.count(), db.compat_count())))
+        Ok(Some(format!("Fixes updated: {} games with a fix, {} in the Highball database.", db.count(), db.compat_count())))
     });
 }
 
 pub fn spawn_update_engine(h: Handle) {
-    spawn_job("engine".into(), "Buscando versión nueva…".into(), h, move |report| {
+    spawn_job("engine".into(), "Checking for a new version…".into(), h, move |report| {
         let rel = engine::latest_engine()?;
         if rel.tag == engine::engine_version() {
-            return Ok(Some(format!("El motor ya está al día ({}).", rel.tag)));
+            return Ok(Some(format!("The engine is up to date ({}).", rel.tag)));
         }
-        engine::install_engine(&rel, |p| report(format!("Bajando motor {} {:.0} %", rel.tag, p * 100.0)))?;
-        Ok(Some(format!("Motor actualizado a {}.", rel.tag)))
+        engine::install_engine(&rel, |p| report(format!("Downloading engine {} {:.0}%", rel.tag, p * 100.0)))?;
+        Ok(Some(format!("Engine updated to {}.", rel.tag)))
     });
 }
 
@@ -259,22 +259,23 @@ pub fn spawn_winetricks(b: Bottle, verbs: Vec<String>, h: Handle) {
     let label = format!("winetricks {}", verbs.join(" "));
     spawn_job(b.id.clone(), label, h, move |_| {
         tools::winetricks(&b, &verbs)?;
-        if let Some(mut fresh) = Bottle::load(&b.id) {
-            for v in &verbs {
-                if !fresh.config.verbs_done.contains(v) {
-                    fresh.config.verbs_done.push(v.clone());
+        {
+            let _ = Bottle::update(&b.id, |c| {
+                for v in &verbs {
+                    if !c.verbs_done.contains(v) {
+                        c.verbs_done.push(v.clone());
+                    }
                 }
-            }
-            let _ = fresh.save();
+            });
         }
-        Ok(Some(format!("Instalado: {}", verbs.join(", "))))
+        Ok(Some(format!("Installed: {}", verbs.join(", "))))
     });
 }
 
 /// Starts a game: writes the bottle's rules, installs the fix's dependencies the
 /// first time, and in Auto mode retries once on WineD3D when the game dies at start.
 pub fn play(g: &Game, games: &[Game], fixes: &FixDb, report: &dyn Fn(String)) -> Result<Option<String>, String> {
-    let mut b = Bottle::load(&g.bottle).ok_or("La botella ya no existe")?;
+    let mut b = Bottle::load(&g.bottle).ok_or("That bottle is gone")?;
     let s = b.config.game(&g.key);
     if s.use_fixes {
         if let Some(f) = fixes.find(g.store, &g.store_id) {
@@ -283,13 +284,19 @@ pub fn play(g: &Game, games: &[Game], fixes: &FixDb, report: &dyn Fn(String)) ->
             let blocked = crate::legal::missing_for_verbs(&all);
             let missing: Vec<String> = all.into_iter().filter(|v| !blocked.contains(&crate::legal::verb_owner(v))).collect();
             if !blocked.is_empty() {
-                report("Hay arreglos sin instalar: falta aceptar su licencia".into());
+                report("Some fixes weren't installed: their license hasn't been accepted".into());
             }
             if !missing.is_empty() {
-                report(format!("Instalando arreglos: {}", missing.join(", ")));
+                report(format!("Installing fixes: {}", missing.join(", ")));
                 tools::winetricks(&b, &missing)?;
-                b.config.verbs_done.extend(missing);
-                b.save().map_err(|e| e.to_string())?;
+                b = Bottle::update(&b.id, |c| {
+                    for v in missing {
+                        if !c.verbs_done.contains(&v) {
+                            c.verbs_done.push(v);
+                        }
+                    }
+                })
+                .map_err(|e| e.to_string())?;
             }
         }
     }
@@ -297,8 +304,12 @@ pub fn play(g: &Game, games: &[Game], fixes: &FixDb, report: &dyn Fn(String)) ->
     if s.use_fixes {
         let done = crate::gamefix::apply(&b, g, fixes);
         if !done.is_empty() {
-            report(format!("Arreglos para Mac: {}", done.join(", ")));
+            report(format!("Mac fixes: {}", done.join(", ")));
         }
+    }
+    let restored = b.guard_registry();
+    if !restored.is_empty() {
+        report(format!("Repaired the Windows registry ({})", restored.join(", ")));
     }
     if b.config.engine == Engine::D3dmetal {
         if let Some(exe) = g.exe.as_deref() {
@@ -311,7 +322,7 @@ pub fn play(g: &Game, games: &[Game], fixes: &FixDb, report: &dyn Fn(String)) ->
     }
     let start_game = |b: &Bottle| -> Result<i32, String> {
         if let Launch::Native { kind, app } = &g.launch {
-            report("Preparando el juego…".into());
+            report("Preparing the game…".into());
             let (prog, a, cwd, env) = crate::native::get().launch_command(*kind, app, b)?;
             let mut c = std::process::Command::new(prog);
             c.args(a).stdin(std::process::Stdio::null());
@@ -324,8 +335,8 @@ pub fn play(g: &Game, games: &[Game], fixes: &FixDb, report: &dyn Fn(String)) ->
                     c.env(k, v);
                 }
             }
-            b.log_to(&mut c, &format!("jugar {}", g.name));
-            report("Jugando".into());
+            b.log_to(&mut c, &format!("play {}", g.name));
+            report("Playing".into());
             return Ok(c.spawn().map_err(|e| e.to_string())?.wait().map_err(|e| e.to_string())?.code().unwrap_or(-1));
         }
         let (mut a, cwd) = g.command();
@@ -341,7 +352,7 @@ pub fn play(g: &Game, games: &[Game], fixes: &FixDb, report: &dyn Fn(String)) ->
                 b.steam_ready_for(g, fixes, report)?;
             }
         }
-        report("Jugando".into());
+        report("Playing".into());
         Ok(b.spawn_for(&a, cwd.as_deref(), Some((g, fixes))).map_err(|e| e.to_string())?.wait().map_err(|e| e.to_string())?.code().unwrap_or(-1))
     };
     let start = std::time::Instant::now();
@@ -352,25 +363,29 @@ pub fn play(g: &Game, games: &[Game], fixes: &FixDb, report: &dyn Fn(String)) ->
     let watch = matches!(g.launch, Launch::Exe { .. } | Launch::Native { .. }) && s.backend == Backend::Auto && !s.fallback;
     if watch && code != 0 && start.elapsed() < Duration::from_secs(20) && s.directx == 0 && b.auto_dx11(g, fixes) {
         // Auto's D3D11 first: give the game its D3D12 back before leaving Metal.
-        let mut gs = s.clone();
-        gs.directx = 12;
-        b.config.game_settings.insert(g.key.clone(), gs);
-        b.save().map_err(|e| e.to_string())?;
+        b = Bottle::update(&b.id, |c| {
+            let mut gs = c.game(&g.key);
+            gs.directx = 12;
+            c.game_settings.insert(g.key.clone(), gs);
+        })
+        .map_err(|e| e.to_string())?;
         b.write_rules(games, fixes);
-        report("Reintentando con DirectX 12".into());
+        report("Trying again with DirectX 12".into());
         start_game(&b)?;
-        return Ok(Some(format!("{} se cerró al arrancar con DirectX 11. El modo Auto lo ha pasado a DirectX 12 y lo recordará.", g.name)));
+        return Ok(Some(format!("{} closed at start on DirectX 11, so Auto switched it to DirectX 12 and will remember that.", g.name)));
     }
     if watch && code != 0 && start.elapsed() < Duration::from_secs(20) {
-        let mut gs = s.clone();
-        gs.fallback = true;
-        b.config.game_settings.insert(g.key.clone(), gs);
-        b.save().map_err(|e| e.to_string())?;
+        b = Bottle::update(&b.id, |c| {
+            let mut gs = c.game(&g.key);
+            gs.fallback = true;
+            c.game_settings.insert(g.key.clone(), gs);
+        })
+        .map_err(|e| e.to_string())?;
         b.write_rules(games, fixes);
-        report("Reintentando con WineD3D".into());
+        report("Trying again with WineD3D".into());
         start_game(&b)?;
         return Ok(Some(format!(
-            "{} se cerró al arrancar con Metal. El modo Auto lo ha pasado a WineD3D y lo recordará.",
+            "{} closed at start on Metal, so Auto switched it to WineD3D and will remember that.",
             g.name
         )));
     }
@@ -402,14 +417,16 @@ fn d3dmetal_auto_retry(
         Graphics::Wine => return Ok(None),
         _ => Graphics::Wine,
     };
-    let mut gs = s.clone();
-    gs.auto_graphics = Some(next);
-    b.config.game_settings.insert(g.key.clone(), gs);
-    b.save().map_err(|e| e.to_string())?;
-    report(format!("Reintentando con {}", graphics_label(next)));
+    *b = Bottle::update(&b.id, |c| {
+        let mut gs = c.game(&g.key);
+        gs.auto_graphics = Some(next);
+        c.game_settings.insert(g.key.clone(), gs);
+    })
+    .map_err(|e| e.to_string())?;
+    report(format!("Trying again with {}", graphics_label(next)));
     start_game(b)?;
     Ok(Some(format!(
-        "{} se cerró al arrancar. El modo Auto lo ha pasado a {} y lo recordará.",
+        "{} closed at start, so Auto switched it to {} and will remember that.",
         g.name,
         graphics_label(next)
     )))
@@ -417,7 +434,7 @@ fn d3dmetal_auto_retry(
 
 pub fn graphics_label(g: Graphics) -> &'static str {
     match g {
-        Graphics::Auto => "Automático",
+        Graphics::Auto => "Automatic",
         Graphics::D3dmetal => "D3DMetal",
         Graphics::Dxmt => "DXMT",
         Graphics::Wine => "WineD3D",
@@ -425,7 +442,7 @@ pub fn graphics_label(g: Graphics) -> &'static str {
 }
 
 pub fn spawn_play(g: Game, games: Vec<Game>, h: Handle) {
-    let label = format!("Abriendo {}", g.name);
+    let label = format!("Opening {}", g.name);
     spawn_job(g.key.clone(), label, h, move |report| play(&g, &games, &FixDb::load(), report));
 }
 
@@ -443,33 +460,34 @@ fn install_into(
     let mut b = match bottle.and_then(|id| Bottle::load(&id)) {
         Some(b) => b,
         None => {
-            report(format!("Creando la botella «{name}»…"));
+            report(format!("Making the bottle “{name}”…"));
             create_bottle(name, None, h)?
         }
     };
     let before: Vec<PathBuf> = library::programs(&b).into_iter().map(|p| p.exe).collect();
     let dirs_before = library::program_dirs(&b);
     let main = body(&b, report)?;
-    report("Esperando a que el instalador termine…".into());
+    report("Waiting for the installer to finish…".into());
     b.wait_idle();
-    // Settings changed while installing (Windows version, verbs) are on disk.
+    // Settings changed while installing (by the user or by winetricks) are on disk.
     if let Some(fresh) = Bottle::load(&b.id) {
-        b.config.verbs_done = fresh.config.verbs_done;
+        b = fresh;
     }
+    let mut new_games: Vec<CustomGame> = vec![];
 
     let known = |b: &Bottle, exe: &Path| b.config.games.iter().any(|g| Path::new(&g.exe) == exe);
     let mut added: Vec<String> = vec![];
     if let Some((exe, a)) = main.filter(|(e, _)| e.exists()) {
         if !known(&b, &exe) {
             added.push(name.to_owned());
-            b.config.games.push(CustomGame { name: name.to_owned(), exe: exe.to_string_lossy().into_owned(), args: a });
+            new_games.push(CustomGame { name: name.to_owned(), exe: exe.to_string_lossy().into_owned(), args: a });
         }
     }
     if added.is_empty() {
         for p in library::programs(&b) {
             if !before.contains(&p.exe) && !known(&b, &p.exe) && b.config.launcher.as_deref() != Some(&*p.exe.to_string_lossy()) {
                 added.push(p.name.clone());
-                b.config.games.push(CustomGame { name: p.name, exe: p.exe.to_string_lossy().into_owned(), args: p.args.join(" ") });
+                new_games.push(CustomGame { name: p.name, exe: p.exe.to_string_lossy().into_owned(), args: p.args.join(" ") });
             }
         }
     }
@@ -479,15 +497,22 @@ fn install_into(
             if let Some(exe) = crate::auto::main_exe(&d) {
                 let n = d.file_name().unwrap_or_default().to_string_lossy().into_owned();
                 added.push(n.clone());
-                b.config.games.push(CustomGame { name: n, exe: exe.to_string_lossy().into_owned(), args: String::new() });
+                new_games.push(CustomGame { name: n, exe: exe.to_string_lossy().into_owned(), args: String::new() });
             }
         }
     }
-    b.save().map_err(|e| e.to_string())?;
+    b = Bottle::update(&b.id, |c| {
+        for g in new_games {
+            if !c.games.iter().any(|x| x.exe == g.exe) {
+                c.games.push(g);
+            }
+        }
+    })
+    .map_err(|e| e.to_string())?;
     Ok(Some(if added.is_empty() {
-        format!("El instalador terminó, pero no encontré ningún programa nuevo en «{}». Puedes abrirlo desde la botella.", b.config.name)
+        format!("The installer finished, but no new program turned up in “{}”. You can open it from the bottle.", b.config.name)
     } else {
-        format!("Instalado en la botella «{}»: {}. Ya está en tu biblioteca.", b.config.name, added.join(", "))
+        format!("Installed in the bottle “{}”: {}. It's in your library now.", b.config.name, added.join(", "))
     }))
 }
 
@@ -497,9 +522,9 @@ pub const INSTALL_JOB: &str = "install";
 /// An unlisted program, from its own installer.
 pub fn spawn_install_file(file: PathBuf, name: String, bottle: Option<String>, h: Handle) {
     let h2 = h.clone();
-    spawn_job(INSTALL_JOB.into(), format!("Preparando {name}…"), h, move |report| {
+    spawn_job(INSTALL_JOB.into(), format!("Preparing {name}…"), h, move |report| {
         install_into(&name, bottle, &h2, report, |b, report| {
-            report(format!("Instalando {name}: sigue los pasos del instalador"));
+            report(format!("Installing {name}: follow the installer's steps"));
             let s = file.to_string_lossy().into_owned();
             let a = if file.extension().is_some_and(|x| x.eq_ignore_ascii_case("msi")) { args(&["msiexec", "/i", &s]) } else { vec![s] };
             b.run(&a, file.parent()).map_err(|e| e.to_string())?;
@@ -511,9 +536,9 @@ pub fn spawn_install_file(file: PathBuf, name: String, bottle: Option<String>, h
 /// A program winetricks knows how to install.
 pub fn spawn_install_winetricks(verb: String, name: String, bottle: Option<String>, h: Handle) {
     let h2 = h.clone();
-    spawn_job(INSTALL_JOB.into(), format!("Preparando {name}…"), h, move |report| {
+    spawn_job(INSTALL_JOB.into(), format!("Preparing {name}…"), h, move |report| {
         install_into(&name, bottle, &h2, report, |b, report| {
-            report(format!("Descargando e instalando {name} con winetricks…"));
+            report(format!("Downloading and installing {name} with winetricks…"));
             tools::winetricks(b, &[verb])?;
             Ok(None)
         })
@@ -523,7 +548,7 @@ pub fn spawn_install_winetricks(verb: String, name: String, bottle: Option<Strin
 /// A Lutris community installer.
 pub fn spawn_install_recipe(recipe: crate::catalog::Recipe, name: String, bottle: Option<String>, own: HashMap<String, PathBuf>, h: Handle) {
     let h2 = h.clone();
-    spawn_job(INSTALL_JOB.into(), format!("Preparando {name}…"), h, move |report| {
+    spawn_job(INSTALL_JOB.into(), format!("Preparing {name}…"), h, move |report| {
         install_into(&name, bottle, &h2, report, |b, report| crate::catalog::run_recipe(&recipe, b, &own, report))
     });
 }

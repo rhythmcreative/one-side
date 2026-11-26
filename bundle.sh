@@ -39,7 +39,7 @@ cat > "$APP/Contents/Info.plist" <<PLIST
 <key>CFBundleExecutable</key><string>OneSide</string>
 <key>CFBundleIconFile</key><string>AppIcon</string>
 <key>CFBundlePackageType</key><string>APPL</string>
-<key>CFBundleDevelopmentRegion</key><string>es</string>
+<key>CFBundleDevelopmentRegion</key><string>en</string>
 <key>LSApplicationCategoryType</key><string>public.app-category.games</string>
 <key>LSMinimumSystemVersion</key><string>14.0</string>
 <key>NSHighResolutionCapable</key><true/>

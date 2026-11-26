@@ -18,28 +18,28 @@ LICENSE_NAMES = ("LICENSE", "LICENCE", "COPYING", "COPYRIGHT", "NOTICE", "UNLICE
 
 # What One-Side downloads after it is installed (never inside the app itself).
 RUNTIME = [
-    ("Mach9 (motor de juegos)", "https://github.com/athei/mach9", "Zlib", "mach9.txt",
-     "Se descarga de las versiones publicadas en GitHub la primera vez que lo pides."),
+    ("Mach9 (game engine)", "https://github.com/athei/mach9", "Zlib", "mach9.txt",
+     "Downloaded from its GitHub releases the first time it's needed."),
     ("Wine", "https://gitlab.winehq.org/wine/wine", "LGPL-2.1-or-later", "wine-LGPL-2.1.txt",
-     "Forma parte de Mach9. Su código fuente está en el enlace."),
-    ("DXMT", "https://github.com/3Shain/dxmt", "LGPL-2.1-or-later", "dxmt.txt", "Forma parte de Mach9."),
-    ("vkd3d-proton", "https://github.com/HansKristian-Work/vkd3d-proton", "LGPL-2.1-or-later", "vkd3d-proton.txt", "Forma parte de Mach9."),
-    ("FEX", "https://github.com/FEX-Emu/FEX", "MIT", "fex.txt", "Forma parte de Mach9."),
-    ("Mesa / KosmicKrisp", "https://gitlab.freedesktop.org/mesa/mesa", "MIT", "mesa.txt", "Forma parte de Mach9."),
-    ("MetalSharp Wine (motor D3DMetal)", "https://github.com/metalsharp/MetalSharp-Wine", "AGPL-3.0-or-later", "metalsharp-wine.txt",
-     "Se descarga de GitHub al crear la botella de Steam o al elegir el motor D3DMetal. Lleva D3DMetal de Apple sin cambios, con su propia licencia de Apple."),
-    ("fsr4-native-macos (FSR 4 en lugar de MetalFX)", "https://github.com/UzenUPoZiTiV4ik/fsr4-native-macos", "MIT; modelo FSR 4 de AMD con su licencia", "fsr4-native-macos.txt",
-     "Se descarga de GitHub y se compila en tu Mac al activar FSR 4 en una botella D3DMetal."),
+     "Part of Mach9. Its source code is at the link."),
+    ("DXMT", "https://github.com/3Shain/dxmt", "LGPL-2.1-or-later", "dxmt.txt", "Part of Mach9."),
+    ("vkd3d-proton", "https://github.com/HansKristian-Work/vkd3d-proton", "LGPL-2.1-or-later", "vkd3d-proton.txt", "Part of Mach9."),
+    ("FEX", "https://github.com/FEX-Emu/FEX", "MIT", "fex.txt", "Part of Mach9."),
+    ("Mesa / KosmicKrisp", "https://gitlab.freedesktop.org/mesa/mesa", "MIT", "mesa.txt", "Part of Mach9."),
+    ("MetalSharp Wine (D3DMetal engine)", "https://github.com/metalsharp/MetalSharp-Wine", "AGPL-3.0-or-later", "metalsharp-wine.txt",
+     "Downloaded from GitHub when the Steam bottle is made or the D3DMetal engine is picked. Carries Apple's D3DMetal unchanged, under Apple's own license."),
+    ("fsr4-native-macos (FSR 4 instead of MetalFX)", "https://github.com/UzenUPoZiTiV4ik/fsr4-native-macos", "MIT; AMD's FSR 4 model under AMD's terms", "fsr4-native-macos.txt",
+     "Downloaded from GitHub and built on your Mac when FSR 4 is turned on in a D3DMetal bottle."),
     ("OptiScaler", "https://github.com/optiscaler/OptiScaler", "GPL-3.0", "optiscaler.txt",
-     "Se descarga de GitHub al activarlo en un juego y se copia sin cambios en su carpeta."),
+     "Downloaded from GitHub when turned on for a game, and copied unchanged into its folder."),
     ("winetricks", "https://github.com/Winetricks/winetricks", "LGPL-2.1-or-later", "winetricks.txt",
-     "Se descarga al instalar una aplicación o dependencia del catálogo."),
+     "Downloaded when an app or dependency from the catalogue is installed."),
     ("umu-protonfixes", "https://github.com/Open-Wine-Components/umu-protonfixes", "BSD-2-Clause", "umu-protonfixes.txt",
-     "Base de arreglos por juego; se descarga y se actualiza aparte."),
-    ("highball-db (compatibilidad en Mac)", "https://github.com/gauthierpiarrette/highball-db", "CC0-1.0; antitrampas MIT (Are We Anti-Cheat Yet?)", "highball-db.txt",
-     "Datos de cómo va cada juego en Apple Silicon. Se descarga y se actualiza con los arreglos; no se usan sus predicciones (ODbL)."),
+     "Per-game fixes database, downloaded and updated separately."),
+    ("highball-db (Mac compatibility)", "https://github.com/gauthierpiarrette/highball-db", "CC0-1.0; anti-cheat data MIT (Are We Anti-Cheat Yet?)", "highball-db.txt",
+     "How each game runs on Apple silicon. Downloaded and updated with the fixes; its predictions (ODbL) aren't used."),
     ("Simple Icons", "https://github.com/simple-icons/simple-icons", "CC0-1.0", "simple-icons.txt",
-     "Dibujos de los logotipos de las tiendas. Las marcas son de sus dueños."),
+     "Drawings of the store logos. The trademarks belong to their owners."),
 ]
 
 
@@ -113,37 +113,37 @@ def main():
 
     out = []
     w = out.append
-    w("ONE-SIDE · AVISOS Y LICENCIAS DE TERCEROS")
+    w("ONE-SIDE · THIRD-PARTY NOTICES AND LICENSES")
     w("=" * 60)
     w("")
-    w("One-Side se distribuye bajo la licencia MIT (ver LICENSE).")
-    w("Incluye el siguiente software de terceros, cada uno bajo su propia licencia.")
-    w("Los textos completos están al final, en el apartado «Textos de licencia».")
+    w("One-Side is distributed under the MIT License (see LICENSE).")
+    w("It includes the following third-party software, each under its own license.")
+    w('The full texts are at the end, under "License texts".')
     w("")
-    w(f"1. COMPONENTES INCLUIDOS EN LA APLICACIÓN ({len(rows)})")
+    w(f"1. COMPONENTS INCLUDED IN THE APP ({len(rows)})")
     w("-" * 60)
     for name, lic, repo, refs in rows:
-        w(f"{name}  —  {lic}" + (f"  —  {repo}" if repo else "") + (f"  [texto {', '.join(refs)}]" if refs else ""))
+        w(f"{name}  —  {lic}" + (f"  —  {repo}" if repo else "") + (f"  [text {', '.join(refs)}]" if refs else ""))
     w("")
-    w("2. COMPONENTES QUE ONE-SIDE DESCARGA APARTE")
+    w("2. COMPONENTS ONE-SIDE DOWNLOADS SEPARATELY")
     w("-" * 60)
-    w("No van dentro de la aplicación: One-Side los descarga de sus autores cuando los")
-    w("necesitas. Se listan para que sepas qué se instala y dónde está su código fuente.")
+    w("They aren't inside the app: One-Side downloads them from their authors when you")
+    w("need them. They're listed so you know what gets installed and where its source is.")
     w("")
     for title, url, lic, f, note in RUNTIME:
         w(f"{title}  —  {lic}  —  {url}")
         w(f"    {note}")
     w("")
-    w("Servicios que One-Side consulta: Steam (búsqueda e imágenes), Lutris (instaladores de la")
-    w("comunidad, https://lutris.net), GitHub (motores y winetricks), Highball (gethighball.com,")
-    w("compatibilidad en Mac), Simple Icons (logotipos) y, si")
-    w("inicias sesión, Epic Games y GOG. One-Side no está afiliado a ninguno de ellos.")
+    w("Services One-Side talks to: Steam (search and images), Lutris (community installers,")
+    w("https://lutris.net), GitHub (updates, engines, FSR 4, OptiScaler and winetricks),")
+    w("Highball (gethighball.com, Mac compatibility), Simple Icons (logos) and, if you sign")
+    w("in, Epic Games and GOG. One-Side isn't affiliated with any of them.")
     w("")
-    w("3. TEXTOS DE LICENCIA")
+    w("3. LICENSE TEXTS")
     w("-" * 60)
     for h, (t, users) in texts.items():
         w("")
-        w(f"[texto {h}] usado por: {', '.join(users[:12])}" + (f" y {len(users) - 12} más" if len(users) > 12 else ""))
+        w(f"[text {h}] used by: {', '.join(users[:12])}" + (f" and {len(users) - 12} more" if len(users) > 12 else ""))
         w("")
         w(t)
     for title, url, lic, f, note in RUNTIME:
@@ -153,7 +153,7 @@ def main():
         w(open(os.path.join(LEGAL, "runtime", f), encoding="utf-8").read().strip())
     w("")
     open(os.path.join(LEGAL, "THIRD_PARTY_NOTICES.txt"), "w", encoding="utf-8").write("\n".join(out))
-    print(f"{len(rows)} crates, {len(texts)} textos, sin licencia: {missing or 'ninguno'}")
+    print(f"{len(rows)} crates, {len(texts)} license texts, without a license: {missing or 'none'}")
     if missing:
         sys.exit(1)
 

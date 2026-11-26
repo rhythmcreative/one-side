@@ -34,7 +34,7 @@
  </tr>
 </table>
 
-Every install gets its own **bottle** (a separate Windows) and shows up in your library with its cover. Steam, Epic Games, GOG, EA app, Ubisoft Connect, Battle.net, Rockstar Games, Amazon Games and itch.io install in one click from their official installers, and Epic Games and GOG games can be played without their launchers. The interface is in Spanish.
+Every install gets its own **bottle** (a separate Windows) and shows up in your library with its cover. Steam, Epic Games, GOG, EA app, Ubisoft Connect, Battle.net, Rockstar Games, Amazon Games and itch.io install in one click from their official installers, and Epic Games and GOG games can be played without their launchers.
 
 [![Typing SVG](https://readme-typing-svg.herokuapp.com?font=Fira+Code&pause=1000&color=F7F7F7&vCenter=true&multiline=true&width=435&height=35&lines=METAL+GRAPHICS)](https://git.io/typing-svg)
 
@@ -48,7 +48,7 @@ A bottle can also run on Apple's **D3DMetal** (from the Game Porting Toolkit, th
 - **FSR 4 instead of MetalFX:** DLSS games are upscaled with AMD FSR 4.1.2, through [fsr4-native-macos](https://github.com/UzenUPoZiTiV4ik/fsr4-native-macos). One-Side downloads it and builds it on your Mac with the Command Line Tools only, no Xcode needed.
 - **OptiScaler** (per game): for games that only have FSR 2/3 or XeSS, [OptiScaler](https://github.com/optiscaler/OptiScaler) hands them to DLSS, so they get MetalFX or FSR 4 too. Turning it off removes exactly the files it added.
 
-[![Typing SVG](https://readme-typing-svg.herokuapp.com?font=Fira+Code&pause=1000&color=F7F7F7&vCenter=true&multiline=true&width=435&height=35&lines=YOU+ACCEPT+EVERY+LICENCE)](https://git.io/typing-svg)
+[![Typing SVG](https://readme-typing-svg.herokuapp.com?font=Fira+Code&pause=1000&color=F7F7F7&vCenter=true&multiline=true&width=435&height=35&lines=YOU+ACCEPT+EVERY+LICENSE)](https://git.io/typing-svg)
 
 <table>
  <tr>
@@ -57,13 +57,15 @@ A bottle can also run on Apple's **D3DMetal** (from the Game Porting Toolkit, th
  </tr>
 </table>
 
-One-Side never accepts a licence for you. Before anything is installed without its own installer (silent store installers, winetricks, Lutris community installers or Microsoft runtimes), you see whose terms apply, with the official link. Installers only come from official websites.
+One-Side never accepts a license for you. Before anything is installed without its own installer (silent store installers, winetricks, Lutris community installers or Microsoft runtimes), you see whose terms apply, with the official link. Installers only come from official websites.
 
 [![Typing SVG](https://readme-typing-svg.herokuapp.com?font=Fira+Code&pause=1000&color=F7F7F7&vCenter=true&multiline=true&width=435&height=35&lines=INSTALL)](https://git.io/typing-svg)
 
 1. Download **`One-Side-macOS-arm64.dmg`** from the newest [release](https://github.com/rhythmcreative/one-side/releases) (One-Side is in beta, so releases are marked as pre-releases).
 2. Open it and drag **One-Side** to **Applications**.
 3. Open One-Side from Launchpad or Spotlight. The first time, it downloads the Mach9 engine.
+
+After that, One-Side keeps itself and everything it downloads up to date on its own. You can turn that off in **Settings › Updates**.
 
 > [!IMPORTANT]
 > The app is not notarized by Apple yet. The first time, macOS says it cannot check it: go to **System Settings › Privacy & Security** and press **Open Anyway**. You only have to do this once.
@@ -81,26 +83,26 @@ The app ships a small helper used by Dock shortcuts and for testing. To build th
 ```bash
 ❯ /Applications/One-Side.app/Contents/MacOS/one-side --help
 
-  --play <botella> <juego>              Abre un juego de la biblioteca (lo usan los accesos del Dock)
-  --install <tienda>                    Instala una tienda: steam, epic, gog, ea, ubisoft, battlenet, rockstar, amazon, itch
-  --install-app wt:<verbo> <nombre>     Instala una aplicación de winetricks en su propia botella
-  --install-app lutris:<slug> <nombre>  Instala con un instalador de la comunidad de Lutris
-  --install-app file:<ruta> <nombre>    Instala desde tu propio .exe o .msi
-  --winetricks <botella> <verbos…>      Instala dependencias en una botella
-  --acepto                              Aceptas las condiciones de lo que se instala sin asistente
-  -h, --help                            Esta ayuda
+  --play <bottle> <game>                Starts a game from the library (Dock shortcuts use this)
+  --install <store>                     Installs a store: steam, epic, gog, ea, ubisoft, battlenet, rockstar, amazon, itch
+  --install-app wt:<verb> <name>        Installs a winetricks app in its own bottle
+  --install-app lutris:<slug> <name>    Installs with a Lutris community installer
+  --install-app file:<path> <name>      Installs from your own .exe or .msi
+  --winetricks <bottle> <verbs…>        Installs dependencies in a bottle
+  --accept                              You accept the terms of what installs without its own installer
+  -h, --help                            This help
 ```
 
-Like the app, the command line never accepts a licence for you: without `--acepto` it stops and tells you whose terms apply.
+Like the app, the command line never accepts a license for you: without `--accept` it stops and tells you whose terms apply.
 
-[![Typing SVG](https://readme-typing-svg.herokuapp.com?font=Fira+Code&pause=1000&color=F7F7F7&vCenter=true&multiline=true&width=435&height=35&lines=LICENCE+%26+LEGAL)](https://git.io/typing-svg)
+[![Typing SVG](https://readme-typing-svg.herokuapp.com?font=Fira+Code&pause=1000&color=F7F7F7&vCenter=true&multiline=true&width=435&height=35&lines=LICENSE+%26+LEGAL)](https://git.io/typing-svg)
 
 <div align="center">
 <img width="420" alt="About One-Side" src="docs/about.png" />
 </div>
 
-- One-Side is free software under the [MIT licence](LICENSE). Contributions are accepted under the same licence.
-- Third-party software and its licences: [legal/THIRD_PARTY_NOTICES.txt](legal/THIRD_PARTY_NOTICES.txt). Privacy (no accounts, no servers, no analytics): [legal/PRIVACY.md](legal/PRIVACY.md). Full legal notes: [legal/LEGAL.md](legal/LEGAL.md).
+- One-Side is free software under the [MIT license](LICENSE). Contributions are accepted under the same license.
+- Third-party software and its licenses: [legal/THIRD_PARTY_NOTICES.txt](legal/THIRD_PARTY_NOTICES.txt). Privacy (no accounts, no servers, no analytics): [legal/PRIVACY.md](legal/PRIVACY.md). Full legal notes: [legal/LEGAL.md](legal/LEGAL.md).
 - One-Side is an independent project. It is not affiliated with or endorsed by Valve, Epic Games, GOG, Electronic Arts, Ubisoft, Blizzard, Rockstar Games, Amazon, itch.io, Lutris, Highball, Microsoft, Apple or CodeWeavers. Their names and logos are trademarks of their owners and are only used to say what One-Side works with. Store logos come from [Simple Icons](https://simpleicons.org) (CC0).
 - Game art is fetched from Steam on each Mac and is not part of this repository.
 - Provided as is, without warranty. Use every store and game according to its own terms.

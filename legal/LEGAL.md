@@ -1,172 +1,166 @@
-# Estado legal de One-Side
+# One-Side legal notes
 
-Revisión del 25-11-2026 (versión 1.0.0). Esto no es asesoramiento jurídico; resume qué exige cada
-pieza y cómo lo cumple One-Side.
+Last reviewed 26 November 2026 (version 0.2). This isn't legal advice. It sums up what
+each piece of One-Side requires and how One-Side meets it.
 
-## 1. Licencia propia
-- El código de One-Side (Rust y Swift) es **MIT** (`LICENSE`, `license = "MIT"` en
-  `Cargo.toml`). Los autores conservan el copyright; la licencia permite usar,
-  modificar y vender el programa, también a ellos mismos.
+## 1. One-Side's own license
+- One-Side's code (Rust and Swift) is **MIT** (`LICENSE`, `license = "MIT"` in
+  `Cargo.toml`). The authors keep the copyright. The license lets anyone use, change
+  and sell the program, the authors included.
 
-## 2. Software de terceros incluido en la app
-- 396 librerías Rust, todas con licencias permisivas: MIT, Apache-2.0, BSD,
-  ISC, Zlib, Unicode-3.0, 0BSD, Unlicense, BSL-1.0 y CDLA-Permissive-2.0, más una
-  MPL-2.0 (`option-ext`, sin modificar). `r-efi` ofrece LGPL solo como alternativa:
-  usamos MIT/Apache.
-- **Obligación:** incluir sus avisos de copyright y licencia. **Cumplido:**
-  `legal/generate.py` crea `THIRD_PARTY_NOTICES.txt` a partir de `cargo metadata`
-  en cada `bundle.sh`. Se copia dentro de la app (`Contents/Resources`) y se ve en
-  **One-Side › Acerca de One-Side › Licencias de terceros**. El script falla si
-  alguna librería no tiene licencia.
-- MPL-2.0: no modificamos `option-ext`; su código fuente está en crates.io.
+## 2. Third-party code inside the app
+- 396 Rust crates, all under permissive licenses: MIT, Apache-2.0, BSD, ISC, Zlib,
+  Unicode-3.0, 0BSD, Unlicense, BSL-1.0 and CDLA-Permissive-2.0, plus one MPL-2.0 crate
+  (`option-ext`, unmodified). `r-efi` offers LGPL only as an alternative; we use it under
+  MIT/Apache.
+- **What they require:** shipping their copyright and license notices. **Done:**
+  `legal/generate.py` builds `THIRD_PARTY_NOTICES.txt` from `cargo metadata` on every
+  `bundle.sh`. It is copied into the app (`Contents/Resources`) and shown under
+  **One-Side › About One-Side › Third-Party Licenses**. The script fails if a crate has
+  no license.
+- MPL-2.0: `option-ext` isn't modified; its source is on crates.io.
 
-## 3. Software que One-Side descarga aparte (no va dentro de la app)
-- Mach9 (Zlib), con Wine, DXMT y vkd3d-proton (LGPL-2.1+), FEX y Mesa/KosmicKrisp
-  (MIT). Se descarga de la página de versiones de Mach9 en GitHub: quien lo
-  distribuye es Mach9, que publica su código fuente. Aun así, One-Side muestra sus
-  licencias y dónde está su código fuente.
-- winetricks (LGPL-2.1+) y umu-protonfixes (BSD-2-Clause) se descargan de sus
-  repositorios oficiales y no se modifican.
-- highball-db: sus datos de juegos son CC0-1.0 (dominio público) y su mapa de
-  antitrampas deriva de Are We Anti-Cheat Yet? (MIT), cuyo aviso va en
-  `legal/runtime/highball-db.txt` y en los avisos de terceros. One-Side no usa sus
-  predicciones basadas en ProtonDB (ODbL). One-Side no está afiliado a Highball; la
-  app dice de dónde viene cada dato («Datos de highball-db»).
-- **Si algún día el motor se mete dentro de la app**, habrá que incluir los textos
-  LGPL (ya están en `legal/runtime/`) y una oferta del código fuente de Wine, DXMT y
-  vkd3d-proton en la versión exacta que se incluya.
+## 3. Software One-Side downloads separately (never inside the app)
+- **Mach9** (Zlib), with Wine, DXMT and vkd3d-proton (LGPL-2.1+), FEX and
+  Mesa/KosmicKrisp (MIT). Downloaded from Mach9's GitHub releases, so Mach9 is the one
+  distributing it and it publishes its source. One-Side still lists the licenses and
+  where the source is.
+- **MetalSharp Wine** (AGPL-3.0-or-later), the D3DMetal engine. Downloaded from its
+  GitHub releases, checked against its SHA-256 and its Developer ID signature, and run
+  unchanged. It carries Apple's D3DMetal (Game Porting Toolkit) unchanged, under Apple's
+  own license, which is inside that app. See `legal/runtime/metalsharp-wine.txt`.
+  One-Side isn't affiliated with Apple or MetalSharp.
+- **fsr4-native-macos** (MIT) puts AMD FSR 4 where D3DMetal uses MetalFX for DLSS.
+  Downloaded from its GitHub releases when the user turns it on, checked against its
+  SHA-256 and built on the user's Mac. One-Side only changes how it loads its Metal
+  shaders (so Xcode isn't needed). Its FSR 4 model data is AMD's, under AMD's terms. See
+  `legal/runtime/fsr4-native-macos.txt`. One-Side isn't affiliated with AMD.
+- **OptiScaler** (GPL-3.0). Downloaded from its GitHub releases only when the user turns
+  it on for a game, checked against its SHA-256 and copied unchanged into that game's
+  folder. Turning it off removes it. See `legal/runtime/optiscaler.txt`.
+- **winetricks** (LGPL-2.1+) and **umu-protonfixes** (BSD-2-Clause) come from their
+  official repositories, unmodified.
+- **highball-db:** its game data is CC0-1.0 (public domain) and its anti-cheat map comes
+  from Are We Anti-Cheat Yet? (MIT), whose notice is in `legal/runtime/highball-db.txt`
+  and in the third-party notices. One-Side doesn't use its ProtonDB-based predictions
+  (ODbL). One-Side isn't affiliated with Highball, and the app says where each piece of
+  data comes from ("Data from highball-db").
+- **Automatic updates** (on by default, Settings › Updates) fetch new releases of all of
+  the above, and of One-Side itself, from the same places and with the same checks.
+- **If the engine ever ships inside the app,** the LGPL texts (already in
+  `legal/runtime/`) and an offer of the source of Wine, DXMT and vkd3d-proton at the
+  exact version shipped will have to go with it.
 
-## 4. Licencias de lo que se instala (tiendas, Microsoft, programas)
-- Steam, Epic y Ubisoft Connect se instalan **sin su asistente** (modo silencioso),
-  y winetricks instala sin preguntar (`-q`) programas y dependencias de Microsoft
-  (Visual C++, .NET, fuentes…). Si se hace así, sus licencias no se muestran.
-- **Cumplido:** antes de instalar algo sin asistente, One-Side muestra cuyas
-  condiciones se aceptan, con enlace oficial, y solo sigue si pulsas «Aceptar e
-  instalar». La aceptación se recuerda por tienda o programa (`consents.json`).
-  El bloqueo está en el núcleo (`src/legal.rs`), así que también vale para los
-  accesos directos del Dock: al abrir un juego, los arreglos cuya licencia no se ha
-  aceptado no se instalan. El ayudante de línea de comandos (`one-side --install`,
-  `--install-app`, `--winetricks`) tampoco instala nada sin aceptar: se para, dice
-  cuyas condiciones son, con su enlace, y solo sigue si el usuario escribe
-  `--acepto`. Lo comprueban las pruebas `ffi::tests::settings_are_saved`
-  y `legal::tests::owners`.
+## 4. Licenses of what gets installed (stores, Microsoft, programs)
+- Steam, Epic and Ubisoft Connect are installed **without their own installer window**
+  (silent mode), and winetricks installs programs and Microsoft dependencies (Visual C++,
+  .NET, fonts…) without asking (`-q`). Done that way, their licenses never show up.
+- **Done:** before installing anything silently, One-Side shows whose terms apply, with
+  the official link, and only goes on if the user presses "Accept and Install". The answer
+  is remembered per store or program (`consents.json`). The check lives in the core
+  (`src/legal.rs`), so it also covers Dock shortcuts: when a game starts, fixes whose
+  license hasn't been accepted aren't installed. The command-line helper
+  (`one-side --install`, `--install-app`, `--winetricks`) won't install anything either:
+  it stops, says whose terms apply, with the link, and only goes on if the user adds
+  `--accept`. Covered by the tests `ffi::tests::settings_are_saved` and
+  `legal::tests::owners`.
   - Steam: https://store.steampowered.com/subscriber_agreement/
   - Epic Games: https://legal.epicgames.com/store/eula
   - Ubisoft: https://legal.ubi.com/eula/
-  - Microsoft (Visual C++ y otros): https://visualstudio.microsoft.com/license-terms/
-  - Programas del catálogo y recetas de Lutris: la licencia de cada programa.
-- El resto de tiendas (GOG, EA, Battle.net, Rockstar, Amazon, itch.io) abren su
-  propio instalador, que muestra sus condiciones.
-- One-Side solo descarga los instaladores de las webs oficiales. No incluye ni
-  enlaza juegos sin licencia: los juegos de pago necesitan que el usuario los tenga.
+  - Microsoft (Visual C++ and others): https://visualstudio.microsoft.com/license-terms/
+  - Catalogue programs and Lutris recipes: each program's own license.
+- The other stores (GOG, EA, Battle.net, Rockstar, Amazon, itch.io) open their own
+  installer, which shows their terms.
+- One-Side only downloads installers from official websites. It doesn't include or link
+  to unlicensed games: paid games have to be owned by the user.
 
-## 5. Marcas
-- Los nombres y logotipos de Steam, Epic Games, GOG, EA, Ubisoft, Battle.net,
-  Rockstar, Amazon, itch.io, Microsoft y Windows son de sus dueños. One-Side los
-  usa solo para decir qué tienda o sistema se instala o es compatible: es un uso
-  referencial permitido en la UE (art. 14.1.c de la Directiva (UE) 2015/2436),
-  siempre que no sugiera relación comercial. **Cumplido:** «Acerca de» dice que
-  One-Side no está afiliado a ninguno ni tiene su aprobación.
-- Los dibujos vienen de Simple Icons (CC0). No hemos aceptado las guías de marca de
-  cada empresa. Si alguna lo pidiera, se quitaría la marca de agua girada de su logo.
-- One-Side no usa el nombre «CrossOver», ni el código o el catálogo propietario de
-  CodeWeavers (CrossTie), ni D3DMetal o el Game Porting Toolkit de Apple, cuya
-  licencia no permite redistribuirlos.
+## 5. Trademarks
+- The names and logos of Steam, Epic Games, GOG, EA, Ubisoft, Battle.net, Rockstar,
+  Amazon, itch.io, Microsoft and Windows belong to their owners. One-Side only uses them
+  to say which store or system it installs or works with. That's referential use, allowed
+  in the EU (art. 14.1.c of Directive (EU) 2015/2436) as long as it doesn't suggest a
+  business relationship. **Done:** "About" says One-Side isn't affiliated with or endorsed
+  by any of them.
+- The logo drawings come from Simple Icons (CC0). We haven't agreed to each company's
+  brand guidelines. If one of them asked, its logo would be taken out.
+- One-Side doesn't use the name "CrossOver", nor CodeWeavers' code or closed catalogue
+  (CrossTie), and it never ships Apple's D3DMetal or Game Porting Toolkit, whose license
+  doesn't allow it.
 
-## 6. Contenido de terceros (portadas)
-- Las portadas, fondos y logotipos de los juegos se piden a Steam al momento y se
-  guardan en una caché local. Solo los ve el usuario en su biblioteca. No se
-  redistribuyen ni se incluyen en la app.
+## 6. Third-party content (game art)
+- Covers, backgrounds and logos are fetched from Steam when needed and kept in a local
+  cache. Only the user sees them, in their own library. They're never redistributed or
+  shipped in the app.
 
-## 6 bis. Servicios web de Steam y Lutris
-- **Steam:** One-Side usa la búsqueda de la tienda (`store.steampowered.com/api/storesearch`)
-  y las imágenes públicas de su CDN, sin clave de API ni datos de cuentas de Steam. Aun
-  así cumple las Condiciones de uso de la Steam Web API
-  (https://steamcommunity.com/dev/apiterms), por ser lo más parecido:
-  - uso personal del usuario en su propia biblioteca;
-  - política de privacidad publicada (`PRIVACY.md`) y datos guardados solo en su Mac;
-  - se ofrece «tal cual», sin garantía («Acerca de»);
-  - no aparenta afiliación con Valve y dice que los datos vienen de Steam;
-  - no pide ni guarda contraseñas de Steam;
-  - no sobrecarga Steam: cada juego se busca una sola vez (el resultado, también el
-    «no encontrado», se guarda en caché), de una búsqueda en una y con 250 ms entre
-    ellas. Queda muy por debajo del límite de 100 000 consultas al día.
-- **Lutris:** su web no publica condiciones de uso (las rutas /terms, /legal, /tos y
-  /privacy dan 404 a 25-11-2026). One-Side la usa como su propio cliente: búsquedas solo
-  cuando el usuario escribe y sin claves. Cita siempre la fuente («Comunidad de
-  Lutris», «Instalador de la comunidad de Lutris»).
-- Todas las peticiones dicen que vienen de One-Side
-  (`User-Agent: One-Side/<versión> (macOS game launcher)`), sin ningún dato personal.
+## 7. Steam and Lutris web services
+- **Steam:** One-Side uses the store search (`store.steampowered.com/api/storesearch`)
+  and the public images on its CDN, with no API key and no Steam account data. It still
+  follows the Steam Web API Terms of Use (https://steamcommunity.com/dev/apiterms), as the
+  closest fit:
+  - personal use by the user, for their own library;
+  - a published privacy policy (`PRIVACY.md`), and data kept only on their Mac;
+  - provided as is, without warranty ("About");
+  - no implied affiliation with Valve, and it says the data comes from Steam;
+  - never asks for or stores Steam passwords;
+  - light on Steam: each game is looked up once (the result, "not found" included, is
+    cached), one search at a time, 250 ms apart. That's far below the 100,000 calls a
+    day limit.
+- **Lutris:** its website has no published terms (/terms, /legal, /tos and /privacy all
+  returned 404 on 25 November 2026). One-Side uses it the way its own client does: it
+  only searches when the user types, with no keys, and always names the source ("Lutris
+  community", "Lutris community installer").
+- Every request says it comes from One-Side
+  (`User-Agent: One-Side/<version> (macOS game launcher)`), with no personal data.
 
-## 7. Cuentas de Epic y GOG
-- Se usan con irori (MIT), como Heroic o Legendary. El inicio de sesión se hace en
-  la web de la tienda, así que One-Side nunca ve la contraseña. La sesión se guarda
-  en el Mac en una carpeta privada (permisos 0700) y «Cerrar sesión» la borra.
-- Epic y GOG no aprueban oficialmente clientes de terceros. El uso es el habitual
-  de lanzadores libres, pero el usuario sigue sujeto a los términos de cada tienda.
+## 8. Epic and GOG accounts
+- Handled with irori (MIT), like Heroic or Legendary do. Sign-in happens on the store's
+  own website, so One-Side never sees the password. The session is kept on the Mac in a
+  private folder (permissions 0700), and "Sign Out" deletes it.
+- Epic and GOG don't officially approve third-party clients. This is the usual way free
+  launchers work, but users are still bound by each store's terms.
 
-## 8. Privacidad (RGPD)
-- Sin servidores, cuentas propias ni analítica. Ver `legal/PRIVACY.md`, que también
-  se ve en la app. Las peticiones a internet no llevan datos personales.
+## 9. Privacy (GDPR)
+- No servers, no accounts of its own, no analytics. See `legal/PRIVACY.md`, which is also
+  shown in the app. Requests to the internet carry no personal data.
 
-## 9. Cifrado (exportación)
-- Solo TLS estándar (rustls/ring) para HTTPS: software de mercado masivo, exento
-  según la Nota 3 de la Categoría 5, Parte 2, del Reglamento (UE) 2021/821. Por eso
-  `Info.plist` lleva `ITSAppUsesNonExemptEncryption = false`.
+## 10. Encryption (export)
+- Only standard TLS (rustls/ring) for HTTPS: mass-market software, exempt under Note 3
+  to Category 5, Part 2 of Regulation (EU) 2021/821. That's why `Info.plist` has
+  `ITSAppUsesNonExemptEncryption = false`.
 
-## 10. Publicar en GitHub
-One-Side se publica como **proyecto de código abierto en GitHub**:
-- **Qué se sube:** el código (`src/`, `app/`), `LICENSE`, `README.md`, `legal/`
-  (avisos, privacidad, este resumen, el generador y los textos de licencia), el
-  icono propio (`brand/icon-orbita.svg`) y los scripts de compilación.
-  - No se suben (`.gitignore`): `target/`, `dist/`, los borradores de diseño
-    (`brand/*.html`, que analizan la interfaz de otra app) ni `legal/PUBLISHER.txt`.
-- **Comprobado:** no hay datos personales, rutas del Mac del autor, claves ni
-  contraseñas en el código. Tampoco hay código copiado de CrossOver ni de otros
-  proyectos LGPL o GPL: el único código ajeno son las librerías de `Cargo.toml`,
-  que se descargan al compilar. Los comentarios no comparan One-Side con productos
-  de terceros.
-- **Contribuciones:** el README dice que se aceptan con la misma licencia MIT
-  (*inbound = outbound*).
-- **Identidad del publicador (LSSI):** un repositorio gratuito, sin publicidad ni
-  actividad económica, no es un «servicio de la sociedad de la información» de la
-  LSSI. Quien lo publica es la cuenta de GitHub que lo sube, y GitHub presta el
-  servicio. Si algún día hay ingresos (donaciones con contraprestación, ventas,
-  publicidad) o una web propia de descarga, hay que rellenar `legal/PUBLISHER.txt`
-  con quién lo publica.
-- **Versiones compiladas en «Releases»:**
-  - Se pueden subir sin notarizar; el README explica el aviso de macOS. Notarizar no
-    es una obligación legal.
-  - Para notarizarlas, `./publicar.sh`. Exige `legal/PUBLISHER.txt`, un Developer ID
-    y un perfil de `notarytool`, y no sigue si falta algo. Firma con hardened runtime
-    y sello de tiempo, notariza, grapa el ticket y lo comprueba con `spctl`.
-  - Toda versión compilada lleva dentro `LICENSE`, `THIRD_PARTY_NOTICES.txt`,
-    `PRIVACY.md` y `LEGAL.md`, como piden las licencias de las librerías incluidas.
-- **Normas de GitHub:** el proyecto no aloja juegos ni software sin licencia, ni
-  herramientas para saltarse protecciones anticopia. Cumple sus Acceptable Use
-  Policies.
+## 11. Publishing on GitHub
+One-Side is published as an **open source project on GitHub**:
+- **What goes up:** the code (`src/`, `app/`, `fsr4/`), `LICENSE`, `README.md`, `legal/`
+  (notices, privacy, these notes, the generator and the license texts), the app's own
+  icon (`brand/icon-orbita.svg`) and the build scripts.
+  - Kept out (`.gitignore`): `target/`, `dist/`, design drafts (`brand/*.html`, which
+    look at another app's interface) and `legal/PUBLISHER.txt`.
+- **Checked:** no personal data, paths from the author's Mac, keys or passwords in the
+  code. No code copied from CrossOver or from LGPL or GPL projects either: the only
+  outside code is the crates in `Cargo.toml`, fetched at build time.
+- **Contributions:** the README says they're accepted under the same MIT license
+  (inbound = outbound).
+- **Publisher identity (Spain's LSSI):** a free repository with no ads or business
+  activity isn't an "information society service" under the LSSI. The publisher is the
+  GitHub account that uploads it, and GitHub provides the service. If there's ever
+  income (donations with something in return, sales, ads) or a separate download
+  website, `legal/PUBLISHER.txt` has to be filled in with who publishes it.
+- **Builds in "Releases":**
+  - They can go up without notarization; the README explains the macOS warning.
+    Notarizing isn't a legal requirement.
+  - To notarize them, run `./publicar.sh`. It needs `legal/PUBLISHER.txt`, a Developer
+    ID and a `notarytool` profile, and stops if anything is missing. It signs with the
+    hardened runtime and a timestamp, notarizes, staples the ticket and checks it with
+    `spctl`.
+  - Every build carries `LICENSE`, `THIRD_PARTY_NOTICES.txt`, `PRIVACY.md` and
+    `LEGAL.md`, as the licenses of the bundled crates require.
+- **GitHub's rules:** the project hosts no games, no unlicensed software and no tools
+  for getting around copy protection. It follows GitHub's Acceptable Use Policies.
 
-## 11. Lo que no puede cubrir este repaso
-- No es asesoramiento jurídico: antes de publicar con fines comerciales conviene que
-  un abogado lo revise.
-- Lutris no publica condiciones de uso. Su `robots.txt` excluye `/api` para robots
-  que rastrean la web. One-Side no rastrea: solo busca cuando el usuario escribe,
-  una vez por búsqueda (600 ms después de dejar de escribir), sin repetir (caché) y
-  diciendo quién es. Si Lutris pidiera dejar de usarla, se quita la búsqueda en Lutris
-  y el resto de la app sigue igual.
-
-- MetalSharp Wine (AGPL-3.0-or-later) es el motor D3DMetal. One-Side lo descarga de sus
-  versiones en GitHub, comprueba su suma SHA-256 y su firma, y lo ejecuta sin cambios; no
-  lo incluye ni lo modifica. Lleva D3DMetal de Apple (Game Porting Toolkit) sin cambios y
-  bajo la licencia de Apple, que está dentro de la app. Detalles en
-  `legal/runtime/metalsharp-wine.txt`. One-Side no está afiliado a Apple ni a MetalSharp.
-
-- fsr4-native-macos (MIT) pone AMD FSR 4 donde D3DMetal usa MetalFX para DLSS. One-Side
-  lo descarga de sus versiones en GitHub al activarlo, comprueba su suma SHA-256 y lo
-  compila en el Mac del usuario, cambiando solo cómo carga sus shaders Metal (para no
-  necesitar Xcode); no lo incluye. Su modelo FSR 4 es de AMD, con la licencia de AMD.
-  Detalles en `legal/runtime/fsr4-native-macos.txt`. One-Side no está afiliado a AMD.
-- OptiScaler (GPL-3.0) se descarga de sus versiones en GitHub solo si el usuario lo activa
-  en un juego, se comprueba su suma SHA-256 y se copia sin cambios en la carpeta del juego;
-  One-Side no lo incluye y lo quita al desactivarlo. Detalles en `legal/runtime/optiscaler.txt`.
-
+## 12. What this review can't cover
+- This isn't legal advice. Before any commercial release, have a lawyer look at it.
+- Lutris publishes no terms of use. Its `robots.txt` excludes `/api` for crawlers.
+  One-Side doesn't crawl: it searches only when the user types, once per search (600 ms
+  after they stop typing), never twice for the same thing (cache), and says who it is.
+  If Lutris asked us to stop, the Lutris search would come out and the rest of the app
+  would carry on.

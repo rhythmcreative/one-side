@@ -29,17 +29,20 @@ struct Game: Decodable, Identifiable, Hashable {
     var id: String { key }
     let key: String, name: String, source: String, bottle: String, bottleName: String
     let installed: Bool, isGame: Bool, custom: Bool, native: Bool
+    /// What deleting it does: "files", "native" (its store's uninstaller), "library"
+    /// (added by hand: only leaves the library) or "bottle" (the store app); nil: nothing.
+    let removal: String?
     let cover: String?, hero: String?, logo: String?, icon: String?, folder: String?
     let settings: GameSettings
     let fix: String?, analysis: String?, task: String?
-    /// Licences to accept before this game's fixes can install their dependencies.
+    /// Licenses to accept before this game's fixes can install their dependencies.
     let fixTerms: [String]?
     let compat: CompatInfo?
     /// The game has DirectX 11 and 12 and can run on either.
     let dualDx: Bool?
     /// Auto runs it on DirectX 11 (highball-db has it working on DXMT).
     let autoDx11: Bool?
-    var sourceLabel: String { source == "Propio" ? "Instalado por ti" : source }
+    var sourceLabel: String { source == "Custom" ? "Added by you" : source }
 }
 
 struct Program: Decodable, Hashable, Identifiable {
@@ -97,16 +100,20 @@ struct Lutris: Decodable { let query: String; let busy: Bool; let error: String?
 struct Message: Decodable { let text: String; let error: Bool }
 struct EngineInfo: Decodable { let version: String; let installed: Bool }
 struct FixesInfo: Decodable { let games: Int; let names: Int; let compat: Int? }
+/// Automatic updates: whether they are on, when the last check ended, and the
+/// versions installed ("" when a part is not installed).
+struct UpdatesInfo: Decodable { let auto: Bool; let lastCheck: Int; let app: String; let metalsharp: String; let fsr4: String; let optiscaler: String }
 
 struct CoreState: Decodable {
     let games: [Game], bottles: [Bottle], stores: [StoreItem], apps: [WinApp], lutris: Lutris
     let tasks: [String: String], message: Message?, engine: EngineInfo, fixes: FixesInfo, steamBottle: String?
     let consents: [String]?
+    let updates: UpdatesInfo?
     /// Huge shaders a running game is compiling for the first time.
     let shadersPending: Int?
 }
 
-/// A licence the user has to accept before One-Side installs something without its own installer.
+/// A license the user has to accept before One-Side installs something without its own installer.
 struct PendingTerms: Identifiable {
     let id = UUID()
     let key: String
@@ -116,7 +123,7 @@ struct PendingTerms: Identifiable {
     let accept: String
     /// What runs once accepted.
     let command: [String: Any]
-    /// What runs if the user goes on without it ("Jugar sin ellos").
+    /// What runs if the user goes on without it ("Play Without Them").
     var without: (label: String, command: [String: Any])? = nil
 }
 
@@ -164,11 +171,17 @@ final class Core: ObservableObject {
         }
     }
 
+    /// The last state as the core sent it: the same bytes again need no decoding and
+    /// no redraw (the window asks twice a second).
+    private var lastState = Data()
+
     func refresh() {
         guard let p = os_state() else { return }
         defer { os_free(p) }
         let data = Data(bytes: p, count: strlen(p))
+        if data == lastState { return }
         guard let s = try? JSONDecoder().decode(CoreState.self, from: data) else { return }
+        lastState = data
         state = s
         if let m = s.message { show(m.text, error: m.error) }
     }
@@ -214,7 +227,7 @@ final class Core: ObservableObject {
         let cmd: [String: Any] = ["cmd": "play", "key": g.key]
         if let k = g.fixTerms?.first(where: { !(state?.consents ?? []).contains($0) }) {
             var t = terms(k, for: cmd)
-            t.without = ("Jugar sin ellos", cmd)
+            t.without = ("Play Without Them", cmd)
             pendingTerms = t
         } else {
             send(cmd)
@@ -249,40 +262,40 @@ final class Core: ObservableObject {
             let id = parts.count > 1 ? parts[1] : ""
             let store = state?.stores.first { $0.key == id }
             let (doc, url): (String, String) = switch id {
-            case "steam": ("el Acuerdo de suscriptor de Steam", "https://store.steampowered.com/subscriber_agreement/")
-            case "epic": ("el Acuerdo de licencia de usuario final de Epic Games Store", "https://legal.epicgames.com/store/eula")
-            case "ubisoft": ("el Acuerdo de licencia de usuario final de Ubisoft", "https://legal.ubi.com/eula/")
-            default: ("sus condiciones", store?.url ?? "")
+            case "steam": ("the Steam Subscriber Agreement", "https://store.steampowered.com/subscriber_agreement/")
+            case "epic": ("the Epic Games Store End User License Agreement", "https://legal.epicgames.com/store/eula")
+            case "ubisoft": ("the Ubisoft End User License Agreement", "https://legal.ubi.com/eula/")
+            default: ("its terms", store?.url ?? "")
             }
             let n = store?.name ?? id
-            return PendingTerms(key: key, title: "Condiciones de \(n)",
-                                message: "\(n) se instala sin mostrar su propio asistente, así que no verás su página de licencia. Al continuar aceptas \(doc).",
-                                url: URL(string: url), accept: "Aceptar e instalar", command: cmd)
+            return PendingTerms(key: key, title: "\(n) Terms",
+                                message: "\(n) installs without showing its own installer, so you will not see its license page. By continuing you accept \(doc).",
+                                url: URL(string: url), accept: "Accept and Install", command: cmd)
         case "app":
             let verb = parts.count > 1 ? parts[1] : ""
             let app = state?.apps.first { $0.verb == verb }
             let n = app?.title ?? name ?? verb
-            let who = app.map { $0.publisher.isEmpty ? "" : " de \($0.publisher)" } ?? ""
-            return PendingTerms(key: key, title: "Licencia de \(n)",
-                                message: "One-Side descarga \(n) de su web oficial y lo instala con winetricks sin mostrar su asistente. Al continuar aceptas la licencia de \(n)\(who).",
-                                url: nil, accept: "Aceptar e instalar", command: cmd)
+            let who = app.map { $0.publisher.isEmpty ? "" : " from \($0.publisher)" } ?? ""
+            return PendingTerms(key: key, title: "\(n) License",
+                                message: "One-Side downloads \(n) from its official website and installs it with winetricks without showing its installer. By continuing you accept the license of \(n)\(who).",
+                                url: nil, accept: "Accept and Install", command: cmd)
         case "recipe":
             let n = name ?? (parts.count > 1 ? parts[1] : "")
-            return PendingTerms(key: key, title: "Instalador de la comunidad de Lutris",
-                                message: "Esta receta, escrita por la comunidad de Lutris, instala \(n) y lo que necesite, a veces sin mostrar sus asistentes. Al continuar aceptas las licencias de \(n) y de esos componentes (por ejemplo, de Microsoft). Necesitas tener tu propia copia del juego si es de pago.",
-                                url: URL(string: "https://lutris.net/about"), accept: "Aceptar e instalar", command: cmd)
+            return PendingTerms(key: key, title: "Lutris Community Installer",
+                                message: "This recipe, written by the Lutris community, installs \(n) and what it needs, sometimes without showing their installers. By continuing you accept the licenses of \(n) and of those components (Microsoft's, for example). You need your own copy of the game if it is paid.",
+                                url: URL(string: "https://lutris.net/about"), accept: "Accept and Install", command: cmd)
         case "microsoft":
-            return PendingTerms(key: key, title: "Componentes de Microsoft",
-                                message: "Hace falta instalar componentes de Microsoft (Visual C++, DirectX, .NET o fuentes de Windows). Se descargan de Microsoft y se instalan sin mostrar su asistente. Al continuar aceptas las licencias de Microsoft de esos componentes.",
-                                url: URL(string: "https://visualstudio.microsoft.com/license-terms/"), accept: cmd["cmd"] as? String == "play" ? "Aceptar y jugar" : "Aceptar e instalar", command: cmd)
+            return PendingTerms(key: key, title: "Microsoft Components",
+                                message: "Microsoft components need to be installed (Visual C++, DirectX, .NET or Windows fonts). They are downloaded from Microsoft and installed without showing their installer. By continuing you accept Microsoft's licenses for those components.",
+                                url: URL(string: "https://visualstudio.microsoft.com/license-terms/"), accept: cmd["cmd"] as? String == "play" ? "Accept and Play" : "Accept and Install", command: cmd)
         case "nvidia":
-            return PendingTerms(key: key, title: "PhysX de NVIDIA",
-                                message: "Hace falta instalar NVIDIA PhysX, que se descarga de NVIDIA y se instala sin mostrar su asistente. Al continuar aceptas la licencia de NVIDIA PhysX.",
-                                url: nil, accept: cmd["cmd"] as? String == "play" ? "Aceptar y jugar" : "Aceptar e instalar", command: cmd)
+            return PendingTerms(key: key, title: "NVIDIA PhysX",
+                                message: "NVIDIA PhysX needs to be installed. It is downloaded from NVIDIA and installed without showing its installer. By continuing you accept the NVIDIA PhysX license.",
+                                url: nil, accept: cmd["cmd"] as? String == "play" ? "Accept and Play" : "Accept and Install", command: cmd)
         default:
-            return PendingTerms(key: key, title: "Licencia de componentes",
-                                message: "Hace falta instalar componentes de terceros con winetricks, sin mostrar sus asistentes. Al continuar aceptas la licencia de cada uno.",
-                                url: nil, accept: cmd["cmd"] as? String == "play" ? "Aceptar y jugar" : "Aceptar e instalar", command: cmd)
+            return PendingTerms(key: key, title: "Component Licenses",
+                                message: "Third-party components need to be installed with winetricks, without showing their installers. By continuing you accept the license of each one.",
+                                url: nil, accept: cmd["cmd"] as? String == "play" ? "Accept and Play" : "Accept and Install", command: cmd)
         }
     }
 
