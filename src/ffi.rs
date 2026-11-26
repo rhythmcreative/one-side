@@ -372,11 +372,17 @@ fn state_json(c: &Core) -> Value {
         "engine": { "version": engine::engine_version(), "installed": engine::engine_installed() },
         "fixes": { "games": c.fixes.count(), "names": c.fixes.umu.len(), "compat": c.fixes.compat_count() },
         "consents": crate::legal::all(),
-        "updates": {
-            "auto": crate::update::settings().auto_update, "lastCheck": crate::update::settings().last_check,
-            "app": env!("CARGO_PKG_VERSION"), "metalsharp": engine::d3dmetal_version(),
-            "fsr4": crate::fsr4::version(), "optiscaler": crate::optiscaler::version(),
-        },
+        "updates": ({
+            let u = crate::update::settings();
+            json!({
+                "auto": u.auto_update, "lastCheck": u.last_check, "waitDays": u.wait_days,
+                "app": env!("CARGO_PKG_VERSION"), "metalsharp": engine::d3dmetal_version(),
+                "fsr4": crate::fsr4::version(), "optiscaler": crate::optiscaler::version(),
+                "mach9": if engine::engine_installed() { engine::engine_version() } else { String::new() },
+                "previousMach9": engine::previous_engine_version(), "previousMetalsharp": engine::previous_d3dmetal_version(),
+                "restart": crate::update::APP_UPDATED.load(std::sync::atomic::Ordering::SeqCst),
+            })
+        }),
         "steamBottle": c.bottles.iter().find(|b| b.config.store.as_deref() == Some("steam") && b.launcher_installed()).map(|b| b.id.clone()),
     })
 }
@@ -596,6 +602,12 @@ fn command(c: &mut Core, v: &Value) -> Result<Value, String> {
             let b = c.bottle(s(v, "id")).cloned().ok_or("that bottle is gone")?;
             install::spawn_job(b.id.clone(), "Deleting…".into(), h, move |report| crate::remove::delete_bottle(&b, report).map(Some));
         }
+        "make_report" => {
+            let b = c.fresh(s(v, "id")).ok_or("that bottle is gone")?;
+            let g = opt(v, "key").and_then(|k| c.game(&k).cloned());
+            let p = crate::report::make(&b, g.as_ref().map(|g| (g, &c.fixes)))?;
+            return Ok(json!({ "path": p }));
+        }
         "delete_game" => {
             let g = c.game(s(v, "key")).cloned().ok_or("that game is gone")?;
             let b = c.bottle(&g.bottle).cloned().ok_or("that bottle is gone")?;
@@ -709,6 +721,25 @@ fn command(c: &mut Core, v: &Value) -> Result<Value, String> {
         }
         "update_engine" => install::spawn_update_engine(h),
         "check_updates" => crate::update::spawn_check(h, false),
+        "set_wait_days" => {
+            let mut st = crate::update::settings();
+            st.wait_days = v["value"].as_u64().unwrap_or(3).min(30) as u32;
+            crate::update::save_settings(&st).map_err(|e| e.to_string())?;
+        }
+        "rollback" => {
+            let what = s(v, "what").to_owned();
+            let engine = if what == "mach9" { Engine::Mach9 } else { Engine::D3dmetal };
+            if c.bottles.iter().filter(|b| b.config.engine == engine).any(Bottle::running) {
+                return Err("Close the bottles that use this engine first.".into());
+            }
+            install::spawn_job("updates".into(), "Going back…".into(), h, move |_| {
+                let (name, key, from) = if what == "mach9" { ("Mach9", "mach9", engine::engine_version()) } else { ("MetalSharp Wine", "metalsharp", engine::d3dmetal_version()) };
+                let back = if what == "mach9" { engine::rollback_engine()? } else { engine::rollback_d3dmetal()? };
+                // Automatic updates won't bring the one the user left back.
+                crate::update::skip_version(key, &from);
+                Ok(Some(format!("{name} is back to {back}. {from} won't be installed again.")))
+            });
+        }
         "set_auto_update" => {
             let mut st = crate::update::settings();
             st.auto_update = v["value"].as_bool().unwrap_or(true);

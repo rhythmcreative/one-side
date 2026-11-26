@@ -14,6 +14,10 @@ Everything stays on your Mac, in `~/Library/Application Support/One-Side`:
 
 You can delete all of it by deleting that folder.
 
+"Make a Report" saves a zip on your Desktop with a bottle's settings and log, the game's
+details, your Mac and One-Side versions and recent crash reports. It stays there: One-Side
+never sends it. You decide whether to attach it to an issue.
+
 ## What One-Side connects to
 Only when it's needed for something you asked for, or for an update check, and without
 sending any data about you:

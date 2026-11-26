@@ -6,7 +6,13 @@
 //! is verified the way its first install is (SHA-256, signatures, FSR 4's test
 //! frames). An engine is never swapped while a bottle that uses it is running:
 //! that part waits for the next check. A new One-Side replaces the app in
-//! Applications and is used the next time it opens.
+//! Applications and is used once the app restarts.
+//!
+//! The engines and the parts built on them (Mach9, MetalSharp Wine, FSR 4,
+//! OptiScaler) change fast and a broken release would break every game, so a new
+//! release is installed only once it has been out for a few days (Settings ›
+//! Updates). A new engine must start before it is kept: if it doesn't, the one
+//! before it comes back, and that release is never installed again.
 
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -33,15 +39,103 @@ pub struct Settings {
     /// Seconds since 1970 of the last finished check.
     #[serde(default)]
     pub last_check: u64,
+    /// How long a new engine release has to be out before it's installed.
+    #[serde(default = "three")]
+    pub wait_days: u32,
+    /// Releases that didn't start or that the user went back from, as "metalsharp:v10.1".
+    #[serde(default)]
+    pub skip: Vec<String>,
 }
 
 fn yes() -> bool {
     true
 }
 
+fn three() -> u32 {
+    3
+}
+
 impl Default for Settings {
     fn default() -> Self {
-        Self { auto_update: true, last_check: 0 }
+        Self { auto_update: true, last_check: 0, wait_days: 3, skip: vec![] }
+    }
+}
+
+/// Never installs `key`'s release `tag` again (it failed, or the user went back from it).
+pub fn skip_version(key: &str, tag: &str) {
+    let mut s = settings();
+    let k = format!("{key}:{tag}");
+    if !s.skip.contains(&k) {
+        s.skip.push(k);
+        let _ = save_settings(&s);
+    }
+}
+
+/// Days since 1970 of a civil date (Howard Hinnant's algorithm).
+fn days_from_civil(y: i64, m: i64, d: i64) -> i64 {
+    let y = if m <= 2 { y - 1 } else { y };
+    let era = if y >= 0 { y } else { y - 399 } / 400;
+    let yoe = y - era * 400;
+    let doy = (153 * (if m > 2 { m - 3 } else { m + 9 }) + 2) / 5 + d - 1;
+    let doe = yoe * 365 + yoe / 4 - yoe / 100 + doy;
+    era * 146097 + doe - 719468
+}
+
+/// Seconds since 1970 of GitHub's "2026-11-26T08:41:50Z".
+fn parse_time(s: &str) -> Option<u64> {
+    let n: Vec<i64> = s.split(|c: char| !c.is_ascii_digit()).filter(|x| !x.is_empty()).filter_map(|x| x.parse().ok()).collect();
+    let [y, mo, d, h, mi, se, ..] = n[..] else { return None };
+    u64::try_from(days_from_civil(y, mo, d) * 86400 + h * 3600 + mi * 60 + se).ok()
+}
+
+/// The latest release of a GitHub repository: its tag and how many days it has been out.
+fn latest(repo: &str) -> Result<(String, f64), String> {
+    let mut body = crate::http_get(&format!("https://api.github.com/repos/{repo}/releases/latest"))
+        .header("Accept", "application/vnd.github+json")
+        .call()
+        .map_err(|e| format!("Could not reach GitHub: {e}"))?
+        .into_body();
+    let j: serde_json::Value = serde_json::from_str(&body.read_to_string().map_err(|e| e.to_string())?).map_err(|e| e.to_string())?;
+    let tag = j["tag_name"].as_str().ok_or("GitHub didn't return a version")?.to_owned();
+    let out = j["published_at"].as_str().and_then(parse_time).map_or(f64::MAX, |t| now().saturating_sub(t) as f64 / 86400.0);
+    Ok((tag, out))
+}
+
+/// The tag as the installers keep it in their VERSION file.
+fn safe(tag: &str) -> String {
+    tag.chars().map(|c| if c.is_ascii_alphanumeric() || c == '.' || c == '-' { c } else { '_' }).collect()
+}
+
+/// What one check did.
+#[derive(Default)]
+pub struct Outcome {
+    pub done: Vec<String>,
+    /// Parts that wait until their bottles are closed.
+    pub closed: Vec<String>,
+    /// New releases not installed yet because they're too recent.
+    pub waiting: Vec<String>,
+    /// What went wrong, for the user to see (a release that didn't start…).
+    pub problems: Vec<String>,
+}
+
+impl Outcome {
+    /// Whether `name` (kept as `key` in the skip list) should go to the latest release of
+    /// `repo` now, installed being `installed`.
+    fn due(&mut self, name: &str, key: &str, repo: &str, installed: &str, s: &Settings) -> bool {
+        match latest(repo) {
+            Ok((tag, _)) if safe(&tag) == installed || tag == installed => false,
+            Ok((tag, _)) if s.skip.contains(&format!("{key}:{tag}")) => false,
+            Ok((tag, days)) if days < s.wait_days as f64 => {
+                let left = (s.wait_days as f64 - days).ceil().max(1.0) as u32;
+                self.waiting.push(format!("{name} {tag} (in {left} day{})", if left == 1 { "" } else { "s" }));
+                false
+            }
+            Ok(_) => true,
+            Err(e) => {
+                eprintln!("update {name}: {e}");
+                false
+            }
+        }
     }
 }
 
@@ -164,91 +258,95 @@ fn any_running(engine: Option<Engine>) -> bool {
     Bottle::load_all().iter().filter(|b| engine.is_none_or(|e| b.config.engine == e)).any(Bottle::running)
 }
 
-/// One check of everything. Returns what was updated and what must wait.
-pub fn check(report: &dyn Fn(String)) -> (Vec<String>, Vec<String>) {
-    let mut done = vec![];
-    let mut later = vec![];
-    let failed = |what: &str, e: String| eprintln!("update {what}: {e}");
+/// One check of everything.
+pub fn check(report: &dyn Fn(String)) -> Outcome {
+    let s = settings();
+    let mut out = Outcome::default();
+    let failed = |out: &mut Outcome, what: &str, e: String| {
+        eprintln!("update {what}: {e}");
+        // A rolled-back engine is news for the user; a network hiccup isn't.
+        if e.contains("went back") {
+            out.problems.push(e);
+        }
+    };
 
     report("Checking for updates…".into());
     match update_app(report) {
-        Ok(Some(v)) => done.push(v),
+        Ok(Some(v)) => {
+            APP_UPDATED.store(true, Ordering::SeqCst);
+            out.done.push(v)
+        }
         Ok(None) => {}
-        Err(e) => failed("One-Side", e),
+        Err(e) => failed(&mut out, "One-Side", e),
     }
 
-    if engine::engine_installed() {
-        match engine::latest_engine() {
-            Ok(rel) if rel.tag != engine::engine_version() => {
-                // Swapping the engine stops its bottles: only when none of them is running.
-                if any_running(Some(Engine::Mach9)) {
-                    later.push(format!("Mach9 {}", rel.tag));
-                } else {
-                    match engine::install_engine(&rel, |p| report(format!("Downloading Mach9 {} {:.0} %", rel.tag, p * 100.0))) {
-                        Ok(()) => done.push(format!("Mach9 {}", rel.tag)),
-                        Err(e) => failed("Mach9", e),
-                    }
-                }
+    if engine::engine_installed() && out.due("Mach9", "mach9", "athei/mach9", &engine::engine_version(), &s) {
+        // Swapping the engine stops its bottles: only when none of them is running.
+        if any_running(Some(Engine::Mach9)) {
+            out.closed.push("Mach9".into());
+        } else {
+            match engine::latest_engine().and_then(|rel| {
+                engine::install_engine(&rel, |p| report(format!("Downloading Mach9 {} {:.0}%", rel.tag, p * 100.0)))?;
+                Ok(rel.tag)
+            }) {
+                Ok(tag) => out.done.push(format!("Mach9 {tag}")),
+                Err(e) => failed(&mut out, "Mach9", e),
             }
-            Ok(_) => {}
-            Err(e) => failed("Mach9", e),
         }
     }
 
     let d3dmetal_busy = any_running(Some(Engine::D3dmetal));
-    if engine::d3dmetal_installed() {
+    if engine::d3dmetal_installed() && out.due("MetalSharp Wine", "metalsharp", "metalsharp/MetalSharp-Wine", &engine::d3dmetal_version(), &s) {
         if d3dmetal_busy {
-            later.push("MetalSharp Wine".into());
+            out.closed.push("MetalSharp Wine".into());
         } else {
-            let before = engine::d3dmetal_version();
-            match engine::install_d3dmetal(|p| report(format!("Downloading MetalSharp Wine {:.0} %", p * 100.0))) {
-                Ok(tag) if tag != before => done.push(format!("MetalSharp Wine {tag}")),
-                Ok(_) => {}
-                Err(e) => failed("MetalSharp Wine", e),
+            match engine::install_d3dmetal(|p| report(format!("Downloading MetalSharp Wine {:.0}%", p * 100.0))) {
+                Ok(tag) => out.done.push(format!("MetalSharp Wine {tag}")),
+                Err(e) => failed(&mut out, "MetalSharp Wine", e),
             }
         }
     }
 
-    if crate::fsr4::installed() {
+    if crate::fsr4::installed() && out.due("FSR 4", "fsr4", "UzenUPoZiTiV4ik/fsr4-native-macos", &crate::fsr4::version(), &s) {
         if d3dmetal_busy {
-            later.push("FSR 4".into());
+            out.closed.push("FSR 4".into());
         } else {
-            let before = crate::fsr4::version();
+            // A build that fails its test frames is never kept: the old one stays.
             match crate::fsr4::install(|s| report(s)) {
-                Ok(_) if crate::fsr4::version() != before => done.push(format!("FSR 4 {}", crate::fsr4::version())),
-                Ok(_) => {}
-                Err(e) => failed("FSR 4", e),
+                Ok(tag) => out.done.push(format!("FSR 4 {tag}")),
+                Err(e) => failed(&mut out, "FSR 4", e),
             }
         }
     }
 
-    if crate::optiscaler::installed() {
+    if crate::optiscaler::installed() && out.due("OptiScaler", "optiscaler", "optiscaler/OptiScaler", &crate::optiscaler::version(), &s) {
         // Games get the new copy the next time they start.
-        let before = crate::optiscaler::version();
         match crate::optiscaler::install(|s| report(s)) {
-            Ok(_) if crate::optiscaler::version() != before => done.push(format!("OptiScaler {}", crate::optiscaler::version())),
-            Ok(_) => {}
-            Err(e) => failed("OptiScaler", e),
+            Ok(tag) => out.done.push(format!("OptiScaler {tag}")),
+            Err(e) => failed(&mut out, "OptiScaler", e),
         }
     }
 
     if crate::fixes::is_stale(Duration::from_secs(12 * 3600)) {
         report("Updating game fixes…".into());
         match crate::fixes::update() {
-            Ok(_) => done.push("game fixes".into()),
-            Err(e) => failed("fixes", e),
+            Ok(_) => out.done.push("game fixes".into()),
+            Err(e) => failed(&mut out, "fixes", e),
         }
     }
 
     if older_than(&crate::tools::winetricks_path(), Duration::from_secs(7 * 24 * 3600)) {
         match crate::tools::update_winetricks() {
-            Ok(true) => done.push("winetricks".into()),
+            Ok(true) => out.done.push("winetricks".into()),
             Ok(false) => {}
-            Err(e) => failed("winetricks", e),
+            Err(e) => failed(&mut out, "winetricks", e),
         }
     }
-    (done, later)
+    out
 }
+
+/// A new One-Side is in place and starts when the app is opened again.
+pub static APP_UPDATED: AtomicBool = AtomicBool::new(false);
 
 static RUNNING: AtomicBool = AtomicBool::new(false);
 
@@ -259,21 +357,27 @@ pub fn spawn_check(h: Handle, quiet: bool) {
     }
     let h2 = h.clone();
     crate::install::spawn_job("updates".into(), "Checking for updates…".into(), h, move |report| {
-        let (done, later) = check(report);
+        let out = check(report);
         RUNNING.store(false, Ordering::SeqCst);
         let mut s = settings();
         s.last_check = now();
         let _ = save_settings(&s);
         set(&h2, |s| s.fixes_dirty = true);
+        if !out.problems.is_empty() {
+            return Err(out.problems.join(" "));
+        }
         let mut msg = vec![];
-        if !done.is_empty() {
-            msg.push(format!("Updated: {}.", done.join(", ")));
-            if done.iter().any(|d| d.starts_with("One-Side ")) {
-                msg.push("The new One-Side opens the next time you start the app.".into());
+        if !out.done.is_empty() {
+            msg.push(format!("Updated: {}.", out.done.join(", ")));
+            if out.done.iter().any(|d| d.starts_with("One-Side ")) {
+                msg.push("Restart One-Side to use the new version (Settings › Updates).".into());
             }
         }
-        if !later.is_empty() {
-            msg.push(format!("{} will update when its bottles are closed.", later.join(", ")));
+        if !out.closed.is_empty() {
+            msg.push(format!("{} will update once its bottles are closed.", out.closed.join(", ")));
+        }
+        if !quiet && !out.waiting.is_empty() {
+            msg.push(format!("New, installed once they've been out a few days: {}.", out.waiting.join(", ")));
         }
         Ok(if msg.is_empty() { (!quiet).then(|| "Everything is up to date.".to_owned()) } else { Some(msg.join(" ")) })
     });
@@ -304,6 +408,14 @@ mod tests {
         assert_eq!(version_of("v1"), Some((1, 0, 0)));
         assert!(version_of("v0.10.0-beta") > version_of("v0.9.3"));
         assert_eq!(version_of("crossover-v4.2"), None);
+    }
+
+    #[test]
+    fn github_times_and_days() {
+        assert_eq!(parse_time("1970-01-02T00:00:00Z"), Some(86400));
+        assert_eq!(parse_time("2026-11-26T08:41:50Z"), Some(1795682510));
+        assert_eq!(safe("crossover-v4.2"), "crossover-v4.2");
+        assert_eq!(safe("v1/2"), "v1_2");
     }
 
     #[test]

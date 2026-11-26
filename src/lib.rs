@@ -17,6 +17,7 @@ pub mod library;
 pub mod native;
 pub mod optiscaler;
 pub mod remove;
+pub mod report;
 pub mod stores;
 pub mod tools;
 pub mod update;

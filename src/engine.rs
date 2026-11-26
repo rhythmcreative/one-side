@@ -1011,20 +1011,76 @@ pub fn install_engine(rel: &Release, mut progress: impl FnMut(f32)) -> Result<()
     for b in mach9() {
         b.kill_all();
     }
-    let old = base.join("wine.old");
-    let _ = fs::remove_dir_all(&old);
-    if engine().exists() {
-        fs::rename(engine(), &old).map_err(|e| e.to_string())?;
+    // The engine in use becomes the previous one, kept to go back to.
+    let prev = base.join("wine.prev");
+    let had = engine().exists();
+    if had {
+        let _ = fs::remove_dir_all(&prev);
+        fs::rename(engine(), &prev).map_err(|e| e.to_string())?;
+        let _ = fs::copy(base.join("VERSION"), base.join("VERSION.prev"));
     }
     fs::rename(staging.join("wine"), engine()).map_err(|e| e.to_string())?;
     let _ = fs::remove_dir_all(&staging);
-    let _ = fs::remove_dir_all(&old);
     let _ = fs::remove_file(&tarball);
     crate::write_atomic(&base.join("VERSION"), rel.tag.as_bytes()).map_err(|e| e.to_string())?;
+    let mut ok = starts(&wine_bin());
+    for b in mach9() {
+        ok &= b.run(&args(&["wineboot", "-u"]), None).is_ok_and(|c| c == 0);
+        if !ok {
+            break;
+        }
+    }
+    if !ok && had {
+        crate::update::skip_version("mach9", &rel.tag);
+        let back = rollback_engine().unwrap_or_default();
+        return Err(format!("Mach9 {} didn't start, so One-Side went back to {back}.", rel.tag));
+    }
+    Ok(())
+}
+
+/// Wine answers `--version` within 30 s: it loads, signs and links.
+fn starts(wine: &Path) -> bool {
+    let Ok(mut c) = Command::new(wine).arg("--version").stdin(Stdio::null()).stdout(Stdio::null()).stderr(Stdio::null()).spawn() else { return false };
+    for _ in 0..300 {
+        if let Ok(Some(s)) = c.try_wait() {
+            return s.success();
+        }
+        std::thread::sleep(std::time::Duration::from_millis(100));
+    }
+    let _ = c.kill();
+    false
+}
+
+/// The Mach9 engine kept from before the last update, if any.
+pub fn previous_engine_version() -> Option<String> {
+    let base = support().join("engine");
+    base.join("wine.prev/bin/wine").exists().then(|| fs::read_to_string(base.join("VERSION.prev")).map(|s| s.trim().to_owned()).unwrap_or_else(|_| "?".into()))
+}
+
+/// Puts the previous Mach9 engine back (and keeps the newer one as the previous).
+pub fn rollback_engine() -> Result<String, String> {
+    let base = support().join("engine");
+    let prev = base.join("wine.prev");
+    if !prev.join("bin/wine").exists() {
+        return Err("There's no previous Mach9 to go back to".into());
+    }
+    let mach9 = || Bottle::load_all().into_iter().filter(|b| b.config.engine == Engine::Mach9);
+    for b in mach9() {
+        b.kill_all();
+    }
+    let swap = base.join("wine.swap");
+    let _ = fs::remove_dir_all(&swap);
+    fs::rename(engine(), &swap).map_err(|e| e.to_string())?;
+    fs::rename(&prev, engine()).map_err(|e| e.to_string())?;
+    fs::rename(&swap, &prev).map_err(|e| e.to_string())?;
+    let now = fs::read_to_string(base.join("VERSION.prev")).unwrap_or_default();
+    let was = fs::read_to_string(base.join("VERSION")).unwrap_or_default();
+    crate::write_atomic(&base.join("VERSION"), now.trim().as_bytes()).map_err(|e| e.to_string())?;
+    crate::write_atomic(&base.join("VERSION.prev"), was.trim().as_bytes()).map_err(|e| e.to_string())?;
     for b in mach9() {
         let _ = b.run(&args(&["wineboot", "-u"]), None);
     }
-    Ok(())
+    Ok(now.trim().to_owned())
 }
 
 // ------------------------------------------------------------ D3DMetal engine
@@ -1103,16 +1159,59 @@ pub fn install_d3dmetal(mut progress: impl FnMut(f32)) -> Result<String, String>
     for b in Bottle::load_all().into_iter().filter(|b| b.config.engine == Engine::D3dmetal) {
         b.kill_all();
     }
-    let old = support().join("engine-metalsharp.old");
-    let _ = fs::remove_dir_all(&old);
-    if base.exists() {
-        fs::rename(&base, &old).map_err(|e| e.to_string())?;
+    // The engine in use becomes the previous one, kept to go back to.
+    let prev = d3dmetal_prev();
+    let had = base.exists();
+    if had {
+        let _ = fs::remove_dir_all(&prev);
+        fs::rename(&base, &prev).map_err(|e| e.to_string())?;
     }
     fs::rename(&staging, &base).map_err(|e| e.to_string())?;
-    let _ = fs::remove_dir_all(&old);
     let _ = fs::remove_file(&zip);
     crate::write_atomic(&base.join("VERSION"), tag.as_bytes()).map_err(|e| e.to_string())?;
+    let mut ok = starts(&d3dmetal_app().join("Contents/MacOS/wine"));
+    for b in Bottle::load_all().into_iter().filter(|b| b.config.engine == Engine::D3dmetal) {
+        ok &= b.run(&args(&["wineboot", "-u"]), None).is_ok_and(|c| c == 0);
+        if !ok {
+            break;
+        }
+    }
+    if !ok && had {
+        crate::update::skip_version("metalsharp", &tag);
+        let back = rollback_d3dmetal().unwrap_or_default();
+        return Err(format!("MetalSharp Wine {tag} didn't start, so One-Side went back to {back}."));
+    }
     Ok(tag)
+}
+
+fn d3dmetal_prev() -> PathBuf {
+    support().join("engine-metalsharp.prev")
+}
+
+/// The MetalSharp Wine kept from before the last update, if any.
+pub fn previous_d3dmetal_version() -> Option<String> {
+    let p = d3dmetal_prev();
+    p.join("MetalSharp-Wine-x86_64.app/Contents/MacOS/wine")
+        .exists()
+        .then(|| fs::read_to_string(p.join("VERSION")).map(|s| s.trim().to_owned()).unwrap_or_else(|_| "?".into()))
+}
+
+/// Puts the previous MetalSharp Wine back (and keeps the newer one as the previous).
+pub fn rollback_d3dmetal() -> Result<String, String> {
+    let base = support().join("engine-metalsharp");
+    let prev = d3dmetal_prev();
+    if previous_d3dmetal_version().is_none() {
+        return Err("There's no previous MetalSharp Wine to go back to".into());
+    }
+    for b in Bottle::load_all().into_iter().filter(|b| b.config.engine == Engine::D3dmetal) {
+        b.kill_all();
+    }
+    let swap = support().join("engine-metalsharp.swap");
+    let _ = fs::remove_dir_all(&swap);
+    fs::rename(&base, &swap).map_err(|e| e.to_string())?;
+    fs::rename(&prev, &base).map_err(|e| e.to_string())?;
+    fs::rename(&swap, &prev).map_err(|e| e.to_string())?;
+    Ok(d3dmetal_version())
 }
 
 // ------------------------------------------------------------ shortcuts
@@ -1160,6 +1259,48 @@ pub fn make_shortcut(g: &Game) -> Result<PathBuf, String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Going back swaps the engine in use with the one kept from before, both ways.
+    #[test]
+    fn engines_go_back_to_the_previous_version() {
+        let _lock = crate::HOME_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        let real_home = std::env::var_os("HOME");
+        let home = std::env::temp_dir().join(format!("one-side-rollback-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&home);
+        unsafe { std::env::set_var("HOME", &home) };
+        let fake = |dir: &Path, wine: &str, v: &str, version_file: &Path| {
+            fs::create_dir_all(dir.join(wine).parent().unwrap()).unwrap();
+            fs::write(dir.join(wine), v).unwrap();
+            fs::write(version_file, v).unwrap();
+        };
+        let ms = support().join("engine-metalsharp");
+        let wine = "MetalSharp-Wine-x86_64.app/Contents/MacOS/wine";
+        fake(&ms, wine, "v2", &ms.join("VERSION"));
+        assert_eq!(previous_d3dmetal_version(), None);
+        assert!(rollback_d3dmetal().is_err(), "nothing to go back to");
+        let prev = support().join("engine-metalsharp.prev");
+        fake(&prev, wine, "v1", &prev.join("VERSION"));
+        assert_eq!(previous_d3dmetal_version().as_deref(), Some("v1"));
+        assert_eq!(rollback_d3dmetal().unwrap(), "v1");
+        assert_eq!(d3dmetal_version(), "v1");
+        assert_eq!(fs::read_to_string(ms.join(wine)).unwrap(), "v1");
+        assert_eq!(previous_d3dmetal_version().as_deref(), Some("v2"));
+
+        let base = support().join("engine");
+        fs::create_dir_all(&base).unwrap();
+        fake(&engine(), "bin/wine", "r3", &base.join("VERSION"));
+        fake(&base.join("wine.prev"), "bin/wine", "r2", &base.join("VERSION.prev"));
+        assert_eq!(previous_engine_version().as_deref(), Some("r2"));
+        assert_eq!(rollback_engine().unwrap(), "r2");
+        assert_eq!(engine_version(), "r2");
+        assert_eq!(fs::read_to_string(wine_bin()).unwrap(), "r2");
+        assert_eq!(previous_engine_version().as_deref(), Some("r3"));
+
+        let _ = fs::remove_dir_all(&home);
+        if let Some(h) = real_home {
+            unsafe { std::env::set_var("HOME", h) }
+        }
+    }
 
     fn env(b: &Bottle, game: Option<(&Game, &FixDb)>) -> HashMap<String, String> {
         b.d3dmetal_env(game).into_iter().collect()

@@ -146,6 +146,7 @@ struct Sidebar: View {
                             if let u = pickFile("Choose the installer (.exe or .msi)", types: ["exe", "msi"]) { core.installFile(u, bottle: b.id) }
                         }
                         Button("Open Drive C:") { openPath(b.driveC) }
+                        Button("Make a Report…") { makeReport(core, bottle: b.id) }
                         Divider()
                         Button("Delete Bottle…", role: .destructive) { deleteBottle(core, b) }
                     }

@@ -65,6 +65,9 @@ enum Shots {
             snap("terms-microsoft")
         }
         try? log.write(to: dir.appendingPathComponent("terms.txt"), atomically: true, encoding: .utf8)
+        w.contentView = NSHostingView(rootView: SettingsView().environmentObject(core).preferredColorScheme(dark ? .dark : .light))
+        w.setContentSize(NSSize(width: 520, height: 680))
+        snap("settings")
         w.contentView = NSHostingView(rootView: AboutView().preferredColorScheme(dark ? .dark : .light))
         w.setContentSize(NSSize(width: 620, height: 560))
         snap("about")

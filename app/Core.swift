@@ -3,6 +3,7 @@
 
 import AppKit
 import SwiftUI
+import UniformTypeIdentifiers
 
 struct Rating: Decodable, Hashable { let stars: Int; let text: String }
 
@@ -102,7 +103,26 @@ struct EngineInfo: Decodable { let version: String; let installed: Bool }
 struct FixesInfo: Decodable { let games: Int; let names: Int; let compat: Int? }
 /// Automatic updates: whether they are on, when the last check ended, and the
 /// versions installed ("" when a part is not installed).
-struct UpdatesInfo: Decodable { let auto: Bool; let lastCheck: Int; let app: String; let metalsharp: String; let fsr4: String; let optiscaler: String }
+struct UpdatesInfo: Decodable {
+    let auto: Bool; let lastCheck: Int; let app: String; let metalsharp: String; let fsr4: String; let optiscaler: String
+    /// Days a new engine release waits before it's installed.
+    let waitDays: Int?
+    let mach9: String?
+    /// Engines kept from before their last update, to go back to.
+    let previousMach9: String?, previousMetalsharp: String?
+    /// A new One-Side is in place: restarting the app opens it.
+    let restart: Bool?
+}
+
+/// Opens the One-Side now in Applications (a new version after an update) and quits this one.
+@MainActor
+func restartApp() {
+    let cfg = NSWorkspace.OpenConfiguration()
+    cfg.createsNewApplicationInstance = true
+    NSWorkspace.shared.openApplication(at: Bundle.main.bundleURL, configuration: cfg) { _, _ in
+        DispatchQueue.main.async { NSApp.terminate(nil) }
+    }
+}
 
 struct CoreState: Decodable {
     let games: [Game], bottles: [Bottle], stores: [StoreItem], apps: [WinApp], lutris: Lutris
@@ -339,6 +359,9 @@ func pickFile(_ message: String, types: [String] = []) -> URL? {
     p.message = message
     p.canChooseDirectories = false
     p.allowsMultipleSelection = false
+    // Only the right kinds of file can be picked, instead of a wrong one doing nothing.
+    let kinds = types.compactMap { UTType(filenameExtension: $0) }
+    if !kinds.isEmpty { p.allowedContentTypes = kinds }
     if p.runModal() != .OK { return nil }
     guard let u = p.url else { return nil }
     if !types.isEmpty && !types.contains(u.pathExtension.lowercased()) { return nil }

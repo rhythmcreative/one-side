@@ -82,6 +82,7 @@ struct BottleView: View {
                 Button { if let u = pickSave("\(b.id).onesidebottle") { core.send(["cmd": "export_bottle", "id": id, "path": u.path]) } } label: {
                     Label("Export Bottle…", systemImage: "square.and.arrow.up")
                 }
+                Button { makeReport(core, bottle: id) } label: { Label("Make a Report…", systemImage: "ladybug") }
                 Button(role: .destructive) { deleteBottle(core, b) } label: { Label("Delete Bottle…", systemImage: "trash") }
             }
             SwiftUI.Section("Control Panels") {
@@ -207,7 +208,20 @@ struct SettingsView: View {
                 Toggle("Update automatically", isOn: Binding(get: { core.state?.updates?.auto ?? true }, set: { core.send(["cmd": "set_auto_update", "value": $0]) }))
                 Text("One-Side, its engines, FSR 4, OptiScaler, game fixes and winetricks are kept on their latest version. An engine waits until its bottles are closed.")
                     .font(.caption).foregroundStyle(.secondary)
+                if core.state?.updates?.restart == true {
+                    HStack {
+                        Text("A new One-Side is installed.")
+                        Spacer()
+                        Button("Restart One-Side") { restartApp() }.buttonStyle(.borderedProminent)
+                    }
+                }
+                Picker("Wait before installing new engines", selection: Binding(get: { core.state?.updates?.waitDays ?? 3 }, set: { core.send(["cmd": "set_wait_days", "value": $0]) })) {
+                    Text("Don't wait").tag(0); Text("1 day").tag(1); Text("3 days").tag(3); Text("1 week").tag(7)
+                }
+                Text("A brand-new engine release can be broken. Waiting a few days lets others find out first. If a new engine doesn't start, One-Side goes back to the one before it on its own.")
+                    .font(.caption).foregroundStyle(.secondary)
                 LabeledContent("One-Side", value: core.state?.updates?.app ?? "?")
+                if let v = core.state?.updates?.mach9, !v.isEmpty { LabeledContent("Mach9", value: v) }
                 if let v = core.state?.updates?.metalsharp, !v.isEmpty { LabeledContent("MetalSharp Wine", value: v) }
                 if let v = core.state?.updates?.fsr4, !v.isEmpty { LabeledContent("FSR 4", value: v) }
                 if let v = core.state?.updates?.optiscaler, !v.isEmpty { LabeledContent("OptiScaler", value: v) }
@@ -215,6 +229,14 @@ struct SettingsView: View {
                 HStack {
                     Button("Check Now") { core.send(["cmd": "check_updates"]) }
                     if let t = core.state?.tasks["updates"] { ProgressView().controlSize(.small); Text(t).font(.caption) }
+                }
+                if let p = core.state?.updates?.previousMach9 {
+                    Button("Go Back to Mach9 \(p)") { core.send(["cmd": "rollback", "what": "mach9"]) }
+                        .help("If games broke after the last Mach9 update. The newer one won't be installed again.")
+                }
+                if let p = core.state?.updates?.previousMetalsharp {
+                    Button("Go Back to MetalSharp Wine \(p)") { core.send(["cmd": "rollback", "what": "metalsharp"]) }
+                        .help("If games broke after the last MetalSharp Wine update. The newer one won't be installed again.")
                 }
             }
             SwiftUI.Section("Engine") {
@@ -247,7 +269,7 @@ struct SettingsView: View {
             }
         }
         .formStyle(.grouped)
-        .frame(width: 520, height: 640)
+        .frame(width: 520, height: 680)
     }
 
     var lastCheck: String {

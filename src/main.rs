@@ -165,12 +165,18 @@ fn cli() -> Option<i32> {
         }
         // What the automatic updates do, now, in the terminal.
         Some("--check-updates") => {
-            let (done, later) = one_side::update::check(&|s| eprintln!("{s}"));
-            println!("updated: {}", if done.is_empty() { "nothing".into() } else { done.join(", ") });
-            if !later.is_empty() {
-                println!("waiting for closed bottles: {}", later.join(", "));
+            let out = one_side::update::check(&|s| eprintln!("{s}"));
+            println!("updated: {}", if out.done.is_empty() { "nothing".into() } else { out.done.join(", ") });
+            if !out.closed.is_empty() {
+                println!("waiting for closed bottles: {}", out.closed.join(", "));
             }
-            Some(0)
+            if !out.waiting.is_empty() {
+                println!("too new yet: {}", out.waiting.join(", "));
+            }
+            for p in &out.problems {
+                println!("problem: {p}");
+            }
+            Some(if out.problems.is_empty() { 0 } else { 1 })
         }
         Some("--update-fixes") => match fixes::update() {
             Ok(db) => {

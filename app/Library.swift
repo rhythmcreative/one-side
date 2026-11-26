@@ -154,6 +154,24 @@ struct GameMenu: View {
     }
 }
 
+/// Puts a zip on the Desktop with what's needed to look into a problem, after saying
+/// what's in it, and shows it in the Finder.
+@MainActor
+func makeReport(_ core: Core, bottle: String, game: String? = nil) {
+    let a = NSAlert()
+    a.messageText = "Make a report?"
+    a.informativeText = "One-Side puts a zip on your Desktop with the bottle's settings and log, the game's details, your Mac and One-Side versions and recent crash reports. Paths in it show your Mac's user name. Nothing is sent: attach the zip to an issue on GitHub if you want help."
+    a.addButton(withTitle: "Make Report")
+    a.addButton(withTitle: "Cancel")
+    guard a.runModal() == .alertFirstButtonReturn else { return }
+    var cmd: [String: Any] = ["cmd": "make_report", "id": bottle]
+    if let game { cmd["key"] = game }
+    if let p = core.send(cmd)?["path"] as? String {
+        reveal(p)
+        core.show("Report saved on your Desktop.")
+    }
+}
+
 func deleteLabel(_ removal: String) -> String {
     switch removal {
     case "library": return "Remove from Library…"
@@ -328,6 +346,7 @@ struct GameInspector: View {
             if let f = game.folder { barButton("Show Folder", "folder") { openPath(f) } }
             if let b = core.bottle(game.bottle) { barButton("Show Log", "doc.text") { openPath(b.log) } }
             barButton("Go to Its Bottle", "shippingbox") { core.section = .bottle(game.bottle) }
+            barButton("Make a Report", "ladybug") { makeReport(core, bottle: game.bottle, game: game.key) }
             if let r = game.removal { barButton(deleteLabel(r).replacingOccurrences(of: "…", with: ""), r == "library" ? "minus.circle" : "trash") { deleteGame(core, game) } }
         }
         .padding(.horizontal, 8).padding(.vertical, 5)

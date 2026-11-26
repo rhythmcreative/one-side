@@ -65,7 +65,9 @@ One-Side never accepts a license for you. Before anything is installed without i
 2. Open it and drag **One-Side** to **Applications**.
 3. Open One-Side from Launchpad or Spotlight. The first time, it downloads the Mach9 engine.
 
-After that, One-Side keeps itself and everything it downloads up to date on its own. You can turn that off in **Settings › Updates**.
+After that, One-Side keeps itself and everything it downloads up to date on its own. New engine releases wait a few days before they're installed, and if one doesn't start, One-Side goes back to the one before it. You can change all of this in **Settings › Updates**.
+
+If something doesn't work, right-click the bottle (or use the bug button on a game) and pick **Make a Report…**. It saves a zip on your Desktop that you can attach to an [issue](https://github.com/rhythmcreative/one-side/issues).
 
 > [!IMPORTANT]
 > The app is not notarized by Apple yet. The first time, macOS says it cannot check it: go to **System Settings › Privacy & Security** and press **Open Anyway**. You only have to do this once.
